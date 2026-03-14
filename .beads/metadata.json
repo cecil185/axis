@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "server",
+  "dolt_database": "axis",
+  "project_id": "3a66bd60-503e-4f93-b1b4-30983a56a37d"
+}
