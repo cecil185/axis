@@ -10,8 +10,9 @@ from .territory import (
     get_territory_at,
     owner,
 )
-from .state import current_team, end_turn
+from .state import current_team
 from .valid_actions import can_skip, valid_attack_targets
+from .actions import skip
 
 # Window: grid on left, sidebar on right
 CELL_SIZE = 120
@@ -63,7 +64,7 @@ def main() -> None:
                 running = False
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if end_turn_button_rect().collidepoint(event.pos):
-                    end_turn()
+                    skip()
 
         screen.fill(bg)
 
