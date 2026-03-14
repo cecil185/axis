@@ -8,7 +8,9 @@ from .territory import (
     GRID_ROWS,
     GRID_COLS,
     get_territory_at,
+    owner,
 )
+from .state import current_team, end_turn
 
 # Window
 CELL_SIZE = 120
@@ -24,13 +26,19 @@ def cell_rect(row: int, col: int) -> pygame.Rect:
     return pygame.Rect(x, y, CELL_SIZE, CELL_SIZE)
 
 
+def end_turn_button_rect() -> pygame.Rect:
+    """Rect for the End turn button below the grid."""
+    y = GRID_ROWS * (CELL_SIZE + MARGIN) + MARGIN
+    return pygame.Rect(MARGIN, y, WIDTH - 2 * MARGIN, BUTTON_HEIGHT)
+
+
 def main() -> None:
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption(TITLE)
     font = pygame.font.Font(None, 72)
     bg = (30, 30, 40)
-    cell_color = (70, 80, 100)
+    team_colors = {"Red": (180, 70, 70), "Blue": (70, 70, 180)}
     text_color = (220, 220, 230)
 
     running = True
@@ -48,6 +56,7 @@ def main() -> None:
                 if tid is None:
                     continue
                 r = cell_rect(row, col)
+                cell_color = team_colors[owner(tid)]
                 pygame.draw.rect(screen, cell_color, r, border_radius=8)
                 text = font.render(tid, True, text_color)
                 tr = text.get_rect(center=r.center)
