@@ -16,5 +16,4 @@ venv/
 htmlcov/
 .crush/*
 .cursor/*
-# bd worktree
-agent-3/
+
