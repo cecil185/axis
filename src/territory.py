@@ -35,3 +35,17 @@ def get_position_of(tid: TerritoryId) -> tuple[int, int] | None:
             if _GRID[r][c] == tid:
                 return (r, c)
     return None
+
+
+def neighbors(tid: TerritoryId) -> list[TerritoryId]:
+    """Return list of adjacent territory IDs (orthogonal only, no diagonals)."""
+    pos = get_position_of(tid)
+    if pos is None:
+        return []
+    row, col = pos
+    result: list[TerritoryId] = []
+    for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+        neighbor = get_territory_at(row + dr, col + dc)
+        if neighbor is not None:
+            result.append(neighbor)
+    return result

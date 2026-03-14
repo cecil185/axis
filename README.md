@@ -38,5 +38,6 @@ make docker-shell   # shell in container
 - `GRID_ROWS`, `GRID_COLS` — both `2`
 - `get_territory_at(row, col)` — territory ID at position, or `None` if out of bounds
 - `get_position_of(tid)` — `(row, col)` for a territory ID, or `None`
+- `neighbors(tid)` — list of adjacent territory IDs (orthogonal only; each territory has exactly two neighbors)
 
 Territories: A = top-left, B = top-right, C = bottom-left, D = bottom-right.

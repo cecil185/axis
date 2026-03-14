@@ -5,6 +5,7 @@ from src.territory import (
     GRID_COLS,
     get_territory_at,
     get_position_of,
+    neighbors,
     TerritoryId,
 )
 
@@ -46,3 +47,18 @@ def test_round_trip_get_territory_at_get_position_of() -> None:
         assert pos is not None
         row, col = pos
         assert get_territory_at(row, col) == tid
+
+
+def test_neighbors_returns_exactly_two_orthogonal_neighbors() -> None:
+    """Each territory has exactly two neighbors (orthogonal only, no diagonals)."""
+    assert set(neighbors("A")) == {"B", "C"}  # top-left: right B, below C
+    assert set(neighbors("B")) == {"A", "D"}  # top-right: left A, below D
+    assert set(neighbors("C")) == {"A", "D"}  # bottom-left: above A, right D
+    assert set(neighbors("D")) == {"B", "C"}  # bottom-right: above B, left C
+
+
+def test_neighbors_is_symmetric() -> None:
+    """If X is in neighbors(Y), then Y is in neighbors(X)."""
+    for tid in ALL_TERRITORY_IDS:
+        for n in neighbors(tid):
+            assert tid in neighbors(n)
