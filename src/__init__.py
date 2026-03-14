@@ -10,6 +10,7 @@ from .territory import (
     TerritoryId,
     Team,
 )
+from .state import current_team, end_turn
 
 __all__ = [
     "ALL_TERRITORY_IDS",
@@ -22,4 +23,6 @@ __all__ = [
     "set_owner",
     "TerritoryId",
     "Team",
+    "current_team",
+    "end_turn",
 ]
