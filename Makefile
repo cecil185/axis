@@ -1,18 +1,15 @@
 .PHONY: install test run clean shell build
 
-build:
-	docker compose build
-
 install: build
 
 test:
-	docker compose run --rm app pytest tests/ -v
+	poetry run pytest tests/ -v
 
 run:
-	docker compose run --rm app python -m src.game
+	poetry run python -m src.game
 
 shell:
-	docker compose run --rm app bash
+	poetry run bash
 
 clean:
 	rm -rf dist build *.egg-info .pytest_cache .mypy_cache
