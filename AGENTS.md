@@ -8,7 +8,6 @@ This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get sta
 bd ready              # Find available work
 bd show <id>          # View issue details
 bd update <id> --claim  # Claim work atomically
-bd close <id>         # Complete work
 ```
 
 **Before ending a session:** You MUST push and create a PR. See [Landing the Plane](#landing-the-plane-session-completion) — work is NOT complete until `git push` and `gh pr create` succeed.
@@ -83,12 +82,6 @@ bd update <id> --claim --json
 bd update bd-42 --priority 1 --json
 ```
 
-**Complete work:**
-
-```bash
-bd close bd-42 --reason "Completed" --json
-```
-
 ### Issue Types
 
 - `bug` - Something broken
@@ -112,7 +105,7 @@ bd close bd-42 --reason "Completed" --json
 3. **Work on it**: Implement, test, document
 4. **Discover new work?** Create linked issue:
    - `bd create "Found bug" --description="Details about what was found" -p 1 --deps discovered-from:<parent-id>`
-5. **Complete**: `bd close <id> --reason "Done"`
+5. **Complete**: Push and create PR; do NOT close the bead — the user closes it after the PR is merged.
 
 ### Auto-Sync
 
@@ -143,7 +136,7 @@ For more details, see README.md and docs/QUICKSTART.md.
 
 1. **File issues for remaining work** — Create issues for anything that needs follow-up.
 2. **Run quality gates** (if code changed) — Tests, linters, builds.
-3. **Update issue status** — Close finished work, update in-progress items.
+3. **Update issue status** — Update in-progress items only.
 4. **Push to remote** (required):
    ```bash
    git pull --rebase
@@ -155,6 +148,7 @@ For more details, see README.md and docs/QUICKSTART.md.
    gh pr create --base main --head "$(git branch --show-current)" --title "Your PR title" --body "Summary of changes (see below)"
    ```
    PR body must include:
+   - **Exact Bead Description**
    - **What was done** — max 3 bullets.
    - **Verification** — tests run, new tests added (if any).
 6. **Clean up** — Clear stashes, prune remote branches.
@@ -163,7 +157,6 @@ For more details, see README.md and docs/QUICKSTART.md.
 
 **CRITICAL RULES:**
 - Work is NOT complete until **both** `git push` and `gh pr create` have been run successfully.
-- NEVER stop after closing a bead without pushing and creating the PR.
 - NEVER say "ready to push when you are" — you must push and create the PR.
 - If push or PR fails, fix and retry until both succeed.
 
