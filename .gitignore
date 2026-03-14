@@ -1,4 +1,16 @@
-
 # Dolt database files (added by bd init)
 .dolt/
 *.db
+
+# Dependencies and build
+node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/

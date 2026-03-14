@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "agent-3"
+version = "0.1.0"
+description = "Territory grid (2×2) — Python + Pygame"
+authors = ["agent-3"]
+readme = "README.md"
+packages = [{ include = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+pygame = ">=2.5.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=7.0.0"
+
+[tool.poetry.scripts]
+game = "src.game:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
