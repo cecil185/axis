@@ -4,8 +4,13 @@ from .territory import (
     GRID_COLS,
     get_territory_at,
     get_position_of,
+    neighbors,
+    owner,
+    set_owner,
     TerritoryId,
+    Team,
 )
+from .state import current_team, end_turn
 
 __all__ = [
     "ALL_TERRITORY_IDS",
@@ -13,5 +18,11 @@ __all__ = [
     "GRID_COLS",
     "get_territory_at",
     "get_position_of",
+    "neighbors",
+    "owner",
+    "set_owner",
     "TerritoryId",
+    "Team",
+    "current_team",
+    "end_turn",
 ]

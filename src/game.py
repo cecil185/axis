@@ -8,13 +8,16 @@ from .territory import (
     GRID_ROWS,
     GRID_COLS,
     get_territory_at,
+    owner,
 )
+from .state import current_team, end_turn
 
 # Window
 CELL_SIZE = 120
 MARGIN = 20
+BUTTON_HEIGHT = 44
 WIDTH = GRID_COLS * CELL_SIZE + (GRID_COLS + 1) * MARGIN
-HEIGHT = GRID_ROWS * CELL_SIZE + (GRID_ROWS + 1) * MARGIN
+HEIGHT = GRID_ROWS * CELL_SIZE + (GRID_ROWS + 1) * MARGIN + MARGIN + BUTTON_HEIGHT
 TITLE = "Territory Grid (2×2)"
 
 
@@ -24,13 +27,19 @@ def cell_rect(row: int, col: int) -> pygame.Rect:
     return pygame.Rect(x, y, CELL_SIZE, CELL_SIZE)
 
 
+def end_turn_button_rect() -> pygame.Rect:
+    """Rect for the End turn button below the grid."""
+    y = GRID_ROWS * (CELL_SIZE + MARGIN) + MARGIN
+    return pygame.Rect(MARGIN, y, WIDTH - 2 * MARGIN, BUTTON_HEIGHT)
+
+
 def main() -> None:
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption(TITLE)
     font = pygame.font.Font(None, 72)
     bg = (30, 30, 40)
-    cell_color = (70, 80, 100)
+    team_colors = {"Red": (180, 70, 70), "Blue": (70, 70, 180)}
     text_color = (220, 220, 230)
 
     running = True
@@ -40,6 +49,9 @@ def main() -> None:
                 running = False
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 running = False
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if end_turn_button_rect().collidepoint(event.pos):
+                    end_turn()
 
         screen.fill(bg)
         for row in range(GRID_ROWS):
@@ -48,10 +60,22 @@ def main() -> None:
                 if tid is None:
                     continue
                 r = cell_rect(row, col)
+                cell_color = team_colors[owner(tid)]
                 pygame.draw.rect(screen, cell_color, r, border_radius=8)
                 text = font.render(tid, True, text_color)
                 tr = text.get_rect(center=r.center)
                 screen.blit(text, tr)
+
+        # Turn label and End turn button
+        btn = end_turn_button_rect()
+        turn_label = f"{current_team()}'s turn"
+        turn_surf = font.render(turn_label, True, text_color)
+        turn_rect = turn_surf.get_rect(centerx=btn.centerx, bottom=btn.top - 4)
+        screen.blit(turn_surf, turn_rect)
+        pygame.draw.rect(screen, (90, 90, 110), btn, border_radius=8)
+        btn_font = pygame.font.Font(None, 36)
+        btn_text = btn_font.render("End turn", True, text_color)
+        screen.blit(btn_text, btn_text.get_rect(center=btn.center))
 
         pygame.display.flip()
         pygame.time.Clock().tick(60)

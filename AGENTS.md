@@ -149,7 +149,9 @@ For more details, see README.md and docs/QUICKSTART.md.
    ```
    PR body must include:
    - **Exact Bead Description**
-   - **What was done** — max 3 bullets.
+   - **New Actions** - what new actions can I see in the UI to test the new functionality
+   - **New functionality**
+   - **New Code** - describe the code changes as they relate to the new functionality
    - **Verification** — tests run, new tests added (if any).
 6. **Clean up** — Clear stashes, prune remote branches.
 7. **Verify** — All changes committed, pushed, and PR created.
