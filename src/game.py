@@ -11,6 +11,7 @@ from .territory import (
     owner,
 )
 from .state import current_team, end_turn
+from .valid_actions import can_skip, valid_attack_targets
 
 # Window
 CELL_SIZE = 120
@@ -66,12 +67,20 @@ def main() -> None:
                 tr = text.get_rect(center=r.center)
                 screen.blit(text, tr)
 
-        # Turn label and End turn button
+        # Turn label, valid actions proof, and End turn button
         btn = end_turn_button_rect()
         turn_label = f"{current_team()}'s turn"
         turn_surf = font.render(turn_label, True, text_color)
         turn_rect = turn_surf.get_rect(centerx=btn.centerx, bottom=btn.top - 4)
         screen.blit(turn_surf, turn_rect)
+        # Proof: valid attack targets and can_skip (verifiable in UI)
+        targets = valid_attack_targets()
+        skip_ok = can_skip()
+        proof_label = f"Attack: {targets or 'none'}  |  Skip: {'yes' if skip_ok else 'no'}"
+        small_font = pygame.font.Font(None, 28)
+        proof_surf = small_font.render(proof_label, True, (160, 180, 200))
+        proof_rect = proof_surf.get_rect(centerx=btn.centerx, bottom=turn_rect.top - 2)
+        screen.blit(proof_surf, proof_rect)
         pygame.draw.rect(screen, (90, 90, 110), btn, border_radius=8)
         btn_font = pygame.font.Font(None, 36)
         btn_text = btn_font.render("End turn", True, text_color)

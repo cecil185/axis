@@ -11,6 +11,7 @@ from .territory import (
     Team,
 )
 from .state import current_team, end_turn
+from .valid_actions import can_skip, valid_attack_targets
 
 __all__ = [
     "ALL_TERRITORY_IDS",
@@ -25,4 +26,6 @@ __all__ = [
     "Team",
     "current_team",
     "end_turn",
+    "valid_attack_targets",
+    "can_skip",
 ]
