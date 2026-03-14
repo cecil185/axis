@@ -14,3 +14,7 @@ venv/
 .pytest_cache/
 .coverage
 htmlcov/
+.crush/*
+.cursor/*
+# bd worktree
+agent-3/

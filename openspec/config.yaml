@@ -1,0 +1,9 @@
+schema: spec-driven
+
+context: |
+  Tech stack: Python
+  Domain: 2D video game
+  Rules:
+    - Keep proposals under 200 words
+    - Always include a "Non-goals" section
+    - Break tasks into chunks of max 2 hours
