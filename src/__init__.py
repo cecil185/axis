@@ -4,7 +4,11 @@ from .territory import (
     GRID_COLS,
     get_territory_at,
     get_position_of,
+    neighbors,
+    owner,
+    set_owner,
     TerritoryId,
+    Team,
 )
 
 __all__ = [
@@ -13,5 +17,9 @@ __all__ = [
     "GRID_COLS",
     "get_territory_at",
     "get_position_of",
+    "neighbors",
+    "owner",
+    "set_owner",
     "TerritoryId",
+    "Team",
 ]

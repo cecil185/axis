@@ -1,11 +1,11 @@
 """
-Territory IDs and 2×2 grid layout.
-No adjacency or ownership logic.
+Territory IDs, 2×2 grid layout, and ownership.
 """
 
 from typing import Literal
 
 TerritoryId = Literal["A", "B", "C", "D"]
+Team = Literal["Red", "Blue"]
 
 # All four territory IDs in grid order (A, B, C, D).
 ALL_TERRITORY_IDS: tuple[TerritoryId, ...] = ("A", "B", "C", "D")
@@ -49,3 +49,22 @@ def neighbors(tid: TerritoryId) -> list[TerritoryId]:
         if neighbor is not None:
             result.append(neighbor)
     return result
+
+
+# Initial state: Red owns A and D; Blue owns B and C (symmetric corners).
+_owners: dict[TerritoryId, Team] = {
+    "A": "Red",
+    "B": "Blue",
+    "C": "Blue",
+    "D": "Red",
+}
+
+
+def owner(tid: TerritoryId) -> Team:
+    """Return the team that owns the territory."""
+    return _owners[tid]
+
+
+def set_owner(tid: TerritoryId, team: Team) -> None:
+    """Set the owner of the territory."""
+    _owners[tid] = team

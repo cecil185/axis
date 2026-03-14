@@ -6,6 +6,8 @@ from src.territory import (
     get_territory_at,
     get_position_of,
     neighbors,
+    owner,
+    set_owner,
     TerritoryId,
 )
 
@@ -62,3 +64,20 @@ def test_neighbors_is_symmetric() -> None:
     for tid in ALL_TERRITORY_IDS:
         for n in neighbors(tid):
             assert tid in neighbors(n)
+
+
+def test_initial_ownership_red_owns_a_and_d() -> None:
+    assert owner("A") == "Red"
+    assert owner("D") == "Red"
+
+
+def test_initial_ownership_blue_owns_b_and_c() -> None:
+    assert owner("B") == "Blue"
+    assert owner("C") == "Blue"
+
+
+def test_set_owner_updates_ownership() -> None:
+    set_owner("A", "Blue")
+    assert owner("A") == "Blue"
+    set_owner("A", "Red")
+    assert owner("A") == "Red"
