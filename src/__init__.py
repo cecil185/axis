@@ -12,6 +12,7 @@ from .territory import (
 )
 from .state import current_team, end_turn
 from .valid_actions import can_skip, valid_attack_targets
+from .actions import attack, set_combat_hook, skip
 
 __all__ = [
     "ALL_TERRITORY_IDS",
@@ -28,4 +29,7 @@ __all__ = [
     "end_turn",
     "valid_attack_targets",
     "can_skip",
+    "skip",
+    "attack",
+    "set_combat_hook",
 ]

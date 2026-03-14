@@ -4,14 +4,15 @@ Pygame 2×2 territory grid. Run with: python -m src.game
 
 import pygame
 from .territory import (
-    ALL_TERRITORY_IDS,
     GRID_ROWS,
     GRID_COLS,
     get_territory_at,
     owner,
+    set_owner,
 )
-from .state import current_team, end_turn
+from .state import current_team
 from .valid_actions import can_skip, valid_attack_targets
+from .actions import attack, set_combat_hook, skip
 
 # Window: grid on left, sidebar on right
 CELL_SIZE = 120
@@ -54,6 +55,12 @@ def main() -> None:
     team_colors = {"Red": (180, 70, 70), "Blue": (70, 70, 180)}
     text_color = (220, 220, 230)
 
+    # Clicking an enemy adjacent square attacks it and it switches to current team
+    def on_combat(target_id: str) -> None:
+        set_owner(target_id, current_team())
+
+    set_combat_hook(on_combat)
+
     running = True
     while running:
         for event in pygame.event.get():
@@ -63,7 +70,19 @@ def main() -> None:
                 running = False
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if end_turn_button_rect().collidepoint(event.pos):
-                    end_turn()
+                    skip()
+                else:
+                    # Click on grid cell: attack if it's a valid target
+                    for row in range(GRID_ROWS):
+                        for col in range(GRID_COLS):
+                            if cell_rect(row, col).collidepoint(event.pos):
+                                tid = get_territory_at(row, col)
+                                if tid is not None and tid in valid_attack_targets():
+                                    try:
+                                        attack(tid)
+                                    except ValueError:
+                                        pass
+                                break
 
         screen.fill(bg)
 
