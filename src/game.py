@@ -9,6 +9,7 @@ from .territory import (
     GRID_ROWS,
     GRID_COLS,
     get_territory_at,
+    is_game_over,
     owner,
     set_owner,
     TerritoryId,
@@ -177,6 +178,8 @@ def main() -> None:
         _draw_grid(screen, font)
         _draw_sidebar(screen, sidebar, small_font, btn_font)
         pygame.display.flip()
+        if is_game_over():
+            break
         clock.tick(FPS)
 
     pygame.quit()

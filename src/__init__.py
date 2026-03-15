@@ -9,6 +9,8 @@ from .territory import (
     set_owner,
     TerritoryId,
     Team,
+    winner,
+    is_game_over,
 )
 from .state import current_team, end_turn
 from .valid_actions import can_skip, valid_attack_targets
@@ -25,6 +27,8 @@ __all__ = [
     "set_owner",
     "TerritoryId",
     "Team",
+    "winner",
+    "is_game_over",
     "current_team",
     "end_turn",
     "valid_attack_targets",
