@@ -1,15 +1,17 @@
 """Tests for turn state (current_team, end_turn)."""
 
-from src.state import current_team, end_turn
+from src.state import TEAMS, current_team, end_turn
+
+RED, BLUE = TEAMS[0], TEAMS[1]
 
 
 def test_red_moves_first() -> None:
-    assert current_team() == "Red"
+    assert current_team() == RED
 
 
 def test_end_turn_flips_to_blue() -> None:
     end_turn()
-    assert current_team() == "Blue"
+    assert current_team() == BLUE
     end_turn()  # restore to Red for other tests
 
 

@@ -2,6 +2,8 @@
 Pygame 2×2 territory grid. Run with: python -m src.game
 """
 
+import logging
+
 import pygame
 from .territory import (
     GRID_ROWS,
@@ -9,6 +11,7 @@ from .territory import (
     get_territory_at,
     owner,
     set_owner,
+    TerritoryId,
 )
 from .state import current_team
 from .valid_actions import can_skip, valid_attack_targets
@@ -26,6 +29,28 @@ WIDTH = GRID_WIDTH + MARGIN + SIDEBAR_WIDTH
 HEIGHT = GRID_HEIGHT
 TITLE = "Territory Grid (2×2)"
 
+# Theme
+BG_COLOR = (30, 30, 40)
+TEAM_COLORS = {"Red": (180, 70, 70), "Blue": (70, 70, 180)}
+TEXT_COLOR = (220, 220, 230)
+SIDEBAR_BG = (45, 45, 55)
+SIDEBAR_BORDER = (70, 70, 85)
+BTN_BG = (90, 90, 110)
+MOVES_TITLE_COLOR = (180, 180, 200)
+
+# Font sizes (pygame "None" default font)
+FONT_SIZE_CELL = 72
+FONT_SIZE_SMALL = 28
+FONT_SIZE_BTN = 36
+FPS = 60
+
+# Layout details
+BORDER_RADIUS = 8
+SIDEBAR_TURN_GAP = 20
+SIDEBAR_SECTION_GAP = 6
+SIDEBAR_LINE_GAP = 2
+SIDEBAR_LINE_WIDTH = 2
+
 
 def cell_rect(row: int, col: int) -> pygame.Rect:
     """Rect for a grid cell (left side only)."""
@@ -39,102 +64,120 @@ def sidebar_rect() -> pygame.Rect:
     return pygame.Rect(GRID_WIDTH + MARGIN, 0, SIDEBAR_WIDTH, HEIGHT)
 
 
-def end_turn_button_rect() -> pygame.Rect:
+def end_turn_button_rect(sidebar: pygame.Rect | None = None) -> pygame.Rect:
     """Rect for the End turn button inside the sidebar."""
-    sx = sidebar_rect().x + SIDEBAR_PAD
+    s = sidebar if sidebar is not None else sidebar_rect()
+    sx = s.x + SIDEBAR_PAD
     sy = HEIGHT - MARGIN - BUTTON_HEIGHT
     return pygame.Rect(sx, sy, SIDEBAR_WIDTH - 2 * SIDEBAR_PAD, BUTTON_HEIGHT)
+
+
+def cell_at_point(pos: tuple[int, int]) -> tuple[int, int] | None:
+    """Return (row, col) of the cell containing pos, or None if outside grid."""
+    for row in range(GRID_ROWS):
+        for col in range(GRID_COLS):
+            if cell_rect(row, col).collidepoint(pos):
+                return (row, col)
+    return None
+
+
+def _handle_events(sidebar: pygame.Rect) -> bool:
+    """Process pygame events. Return False to quit."""
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            return False
+        if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+            return False
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if end_turn_button_rect(sidebar).collidepoint(event.pos):
+                skip()
+            else:
+                cell = cell_at_point(event.pos)
+                if cell is not None:
+                    row, col = cell
+                    tid = get_territory_at(row, col)
+                    if tid is not None and tid in valid_attack_targets():
+                        try:
+                            attack(tid)
+                        except ValueError as e:
+                            logging.warning("Invalid attack ignored: %s", e)
+    return True
+
+
+def _draw_grid(screen: pygame.Surface, font: pygame.font.Font) -> None:
+    """Draw the 2×2 territory grid on the left."""
+    for row in range(GRID_ROWS):
+        for col in range(GRID_COLS):
+            tid = get_territory_at(row, col)
+            if tid is None:
+                continue
+            r = cell_rect(row, col)
+            pygame.draw.rect(screen, TEAM_COLORS[owner(tid)], r, border_radius=BORDER_RADIUS)
+            text = font.render(tid, True, TEXT_COLOR)
+            tr = text.get_rect(center=r.center)
+            screen.blit(text, tr)
+
+
+def _draw_sidebar(
+    screen: pygame.Surface,
+    sidebar: pygame.Rect,
+    small_font: pygame.font.Font,
+    btn_font: pygame.font.Font,
+) -> None:
+    """Draw turn info, possible moves, and End turn button."""
+    pygame.draw.rect(screen, SIDEBAR_BG, sidebar)
+    pygame.draw.line(screen, SIDEBAR_BORDER, (sidebar.left, 0), (sidebar.left, HEIGHT), SIDEBAR_LINE_WIDTH)
+    y = MARGIN
+
+    turn_label = f"{current_team()}'s turn"
+    turn_surf = btn_font.render(turn_label, True, TEAM_COLORS[current_team()])
+    turn_rect = turn_surf.get_rect(x=sidebar.x + SIDEBAR_PAD, y=y)
+    screen.blit(turn_surf, turn_rect)
+    y = turn_rect.bottom + SIDEBAR_TURN_GAP
+
+    targets = valid_attack_targets()
+    skip_ok = can_skip()
+    moves_title = small_font.render("Possible moves", True, MOVES_TITLE_COLOR)
+    screen.blit(moves_title, (sidebar.x + SIDEBAR_PAD, y))
+    y += moves_title.get_height() + SIDEBAR_SECTION_GAP
+    attack_txt = small_font.render(f"Attack: {targets if targets else 'none'}", True, TEXT_COLOR)
+    screen.blit(attack_txt, (sidebar.x + SIDEBAR_PAD, y))
+    y += attack_txt.get_height() + SIDEBAR_LINE_GAP
+    skip_txt = small_font.render(f"Skip: {'yes' if skip_ok else 'no'}", True, TEXT_COLOR)
+    screen.blit(skip_txt, (sidebar.x + SIDEBAR_PAD, y))
+
+    btn = end_turn_button_rect(sidebar)
+    pygame.draw.rect(screen, BTN_BG, btn, border_radius=BORDER_RADIUS)
+    btn_text = btn_font.render("End turn", True, TEXT_COLOR)
+    screen.blit(btn_text, btn_text.get_rect(center=btn.center))
 
 
 def main() -> None:
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption(TITLE)
-    font = pygame.font.Font(None, 72)
-    bg = (30, 30, 40)
-    team_colors = {"Red": (180, 70, 70), "Blue": (70, 70, 180)}
-    text_color = (220, 220, 230)
+    font = pygame.font.Font(None, FONT_SIZE_CELL)
+    small_font = pygame.font.Font(None, FONT_SIZE_SMALL)
+    btn_font = pygame.font.Font(None, FONT_SIZE_BTN)
 
-    # Clicking an enemy adjacent square attacks it and it switches to current team
-    def on_combat(target_id: str) -> None:
+    def on_combat(target_id: TerritoryId) -> None:
         set_owner(target_id, current_team())
 
     set_combat_hook(on_combat)
 
+    clock = pygame.time.Clock()
     running = True
     while running:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                running = False
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                running = False
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if end_turn_button_rect().collidepoint(event.pos):
-                    skip()
-                else:
-                    # Click on grid cell: attack if it's a valid target
-                    for row in range(GRID_ROWS):
-                        for col in range(GRID_COLS):
-                            if cell_rect(row, col).collidepoint(event.pos):
-                                tid = get_territory_at(row, col)
-                                if tid is not None and tid in valid_attack_targets():
-                                    try:
-                                        attack(tid)
-                                    except ValueError:
-                                        pass
-                                break
-
-        screen.fill(bg)
-
-        # Left: 2×2 grid only
-        for row in range(GRID_ROWS):
-            for col in range(GRID_COLS):
-                tid = get_territory_at(row, col)
-                if tid is None:
-                    continue
-                r = cell_rect(row, col)
-                cell_color = team_colors[owner(tid)]
-                pygame.draw.rect(screen, cell_color, r, border_radius=8)
-                text = font.render(tid, True, text_color)
-                tr = text.get_rect(center=r.center)
-                screen.blit(text, tr)
-
-        # Right: sidebar (turn, possible moves, End turn)
         sidebar = sidebar_rect()
-        pygame.draw.rect(screen, (45, 45, 55), sidebar)
-        pygame.draw.line(screen, (70, 70, 85), (sidebar.left, 0), (sidebar.left, HEIGHT), 2)
+        running = _handle_events(sidebar)
+        if not running:
+            break
 
-        small_font = pygame.font.Font(None, 28)
-        btn_font = pygame.font.Font(None, 36)
-        y = MARGIN
-
-        # Who's turn
-        turn_label = f"{current_team()}'s turn"
-        turn_surf = btn_font.render(turn_label, True, team_colors[current_team()])
-        turn_rect = turn_surf.get_rect(x=sidebar.x + SIDEBAR_PAD, y=y)
-        screen.blit(turn_surf, turn_rect)
-        y = turn_rect.bottom + 20
-
-        # Possible moves
-        targets = valid_attack_targets()
-        skip_ok = can_skip()
-        moves_title = small_font.render("Possible moves", True, (180, 180, 200))
-        screen.blit(moves_title, (sidebar.x + SIDEBAR_PAD, y))
-        y += moves_title.get_height() + 6
-        attack_txt = small_font.render(f"Attack: {targets if targets else 'none'}", True, text_color)
-        screen.blit(attack_txt, (sidebar.x + SIDEBAR_PAD, y))
-        y += attack_txt.get_height() + 2
-        skip_txt = small_font.render(f"Skip: {'yes' if skip_ok else 'no'}", True, text_color)
-        screen.blit(skip_txt, (sidebar.x + SIDEBAR_PAD, y))
-
-        # End turn button at bottom of sidebar
-        btn = end_turn_button_rect()
-        pygame.draw.rect(screen, (90, 90, 110), btn, border_radius=8)
-        btn_text = btn_font.render("End turn", True, text_color)
-        screen.blit(btn_text, btn_text.get_rect(center=btn.center))
-
+        screen.fill(BG_COLOR)
+        _draw_grid(screen, font)
+        _draw_sidebar(screen, sidebar, small_font, btn_font)
         pygame.display.flip()
-        pygame.time.Clock().tick(60)
+        clock.tick(FPS)
 
     pygame.quit()
 

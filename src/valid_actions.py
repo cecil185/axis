@@ -20,5 +20,5 @@ def valid_attack_targets() -> list[TerritoryId]:
 
 
 def can_skip() -> bool:
-    """Return True; skip is always allowed."""
+    """Skip is always allowed in this game; returns True."""
     return True

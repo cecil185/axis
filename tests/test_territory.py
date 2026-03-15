@@ -1,4 +1,4 @@
-import pytest
+from src.state import TEAMS
 from src.territory import (
     ALL_TERRITORY_IDS,
     GRID_ROWS,
@@ -10,6 +10,8 @@ from src.territory import (
     set_owner,
     TerritoryId,
 )
+
+RED, BLUE = TEAMS[0], TEAMS[1]
 
 
 def test_exposes_all_four_territory_ids() -> None:
@@ -67,17 +69,17 @@ def test_neighbors_is_symmetric() -> None:
 
 
 def test_initial_ownership_red_owns_a_and_d() -> None:
-    assert owner("A") == "Red"
-    assert owner("D") == "Red"
+    assert owner("A") == RED
+    assert owner("D") == RED
 
 
 def test_initial_ownership_blue_owns_b_and_c() -> None:
-    assert owner("B") == "Blue"
-    assert owner("C") == "Blue"
+    assert owner("B") == BLUE
+    assert owner("C") == BLUE
 
 
 def test_set_owner_updates_ownership() -> None:
-    set_owner("A", "Blue")
-    assert owner("A") == "Blue"
-    set_owner("A", "Red")
-    assert owner("A") == "Red"
+    set_owner("A", BLUE)
+    assert owner("A") == BLUE
+    set_owner("A", RED)
+    assert owner("A") == RED
