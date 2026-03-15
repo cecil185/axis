@@ -68,3 +68,17 @@ def owner(tid: TerritoryId) -> Team:
 def set_owner(tid: TerritoryId, team: Team) -> None:
     """Set the owner of the territory."""
     _owners[tid] = team
+
+
+def winner() -> Team | None:
+    """Return the team that owns all four territories, or None if game is not over."""
+    first = owner(ALL_TERRITORY_IDS[0])
+    for tid in ALL_TERRITORY_IDS[1:]:
+        if owner(tid) != first:
+            return None
+    return first
+
+
+def is_game_over() -> bool:
+    """Return True iff one team owns all four territories (winner() is not None)."""
+    return winner() is not None

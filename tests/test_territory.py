@@ -9,6 +9,8 @@ from src.territory import (
     owner,
     set_owner,
     TerritoryId,
+    winner,
+    is_game_over,
 )
 
 RED, BLUE = TEAMS[0], TEAMS[1]
@@ -83,3 +85,56 @@ def test_set_owner_updates_ownership() -> None:
     assert owner("A") == BLUE
     set_owner("A", RED)
     assert owner("A") == RED
+
+
+def test_is_game_over_false_when_2_2() -> None:
+    """Initial state: Red A,D and Blue B,C (2-2). Game not over."""
+    assert not is_game_over()
+
+
+def test_is_game_over_false_when_3_1() -> None:
+    """Red owns A,B,D; Blue owns C (3-1). Game not over."""
+    set_owner("B", RED)
+    try:
+        assert not is_game_over()
+    finally:
+        set_owner("B", BLUE)
+
+
+def test_is_game_over_true_when_4_0() -> None:
+    """One team owns all four territories. Game over."""
+    for tid in ALL_TERRITORY_IDS:
+        set_owner(tid, RED)
+    try:
+        assert is_game_over()
+    finally:
+        set_owner("A", RED)
+        set_owner("B", BLUE)
+        set_owner("C", BLUE)
+        set_owner("D", RED)
+
+
+def test_winner_returns_none_when_not_game_over() -> None:
+    """winner() is None when no team owns all four."""
+    assert winner() is None
+    set_owner("B", RED)
+    try:
+        assert winner() is None
+    finally:
+        set_owner("B", BLUE)
+
+
+def test_winner_returns_team_when_4_0() -> None:
+    """winner() returns the team that owns all four territories."""
+    for tid in ALL_TERRITORY_IDS:
+        set_owner(tid, RED)
+    try:
+        assert winner() == RED
+        for tid in ALL_TERRITORY_IDS:
+            set_owner(tid, BLUE)
+        assert winner() == BLUE
+    finally:
+        set_owner("A", RED)
+        set_owner("B", BLUE)
+        set_owner("C", BLUE)
+        set_owner("D", RED)

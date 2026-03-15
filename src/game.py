@@ -9,9 +9,11 @@ from .territory import (
     GRID_ROWS,
     GRID_COLS,
     get_territory_at,
+    is_game_over,
     owner,
     set_owner,
     TerritoryId,
+    winner,
 )
 from .state import current_team
 from .valid_actions import can_skip, valid_attack_targets
@@ -118,6 +120,41 @@ def _draw_grid(screen: pygame.Surface, font: pygame.font.Font) -> None:
             screen.blit(text, tr)
 
 
+def _show_winner_popup(
+    screen: pygame.Surface, winning_team: str, clock: pygame.time.Clock
+) -> None:
+    """Show a modal popup with the winning team; wait for click or key to close."""
+    overlay = pygame.Surface((WIDTH, HEIGHT))
+    overlay.set_alpha(200)
+    overlay.fill((0, 0, 0))
+    screen.blit(overlay, (0, 0))
+
+    popup_w, popup_h = 320, 120
+    popup_x = (WIDTH - popup_w) // 2
+    popup_y = (HEIGHT - popup_h) // 2
+    popup_rect = pygame.Rect(popup_x, popup_y, popup_w, popup_h)
+    pygame.draw.rect(screen, SIDEBAR_BG, popup_rect, border_radius=BORDER_RADIUS)
+    pygame.draw.rect(screen, SIDEBAR_BORDER, popup_rect, 2, border_radius=BORDER_RADIUS)
+
+    font = pygame.font.Font(None, 48)
+    title = font.render("Game Over", True, MOVES_TITLE_COLOR)
+    screen.blit(title, title.get_rect(centerx=popup_rect.centerx, top=popup_y + 20))
+    msg = font.render(f"{winning_team} wins!", True, TEAM_COLORS.get(winning_team, TEXT_COLOR))
+    screen.blit(msg, msg.get_rect(centerx=popup_rect.centerx, top=popup_y + 55))
+    hint = pygame.font.Font(None, 24).render("Click or press any key to close", True, MOVES_TITLE_COLOR)
+    screen.blit(hint, hint.get_rect(centerx=popup_rect.centerx, top=popup_y + 90))
+    pygame.display.flip()
+
+    waiting = True
+    while waiting:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                waiting = False
+            if event.type in (pygame.MOUSEBUTTONDOWN, pygame.KEYDOWN):
+                waiting = False
+        clock.tick(FPS)
+
+
 def _draw_sidebar(
     screen: pygame.Surface,
     sidebar: pygame.Rect,
@@ -177,6 +214,11 @@ def main() -> None:
         _draw_grid(screen, font)
         _draw_sidebar(screen, sidebar, small_font, btn_font)
         pygame.display.flip()
+        if is_game_over():
+            w = winner()
+            if w is not None:
+                _show_winner_popup(screen, w, clock)
+            break
         clock.tick(FPS)
 
     pygame.quit()
