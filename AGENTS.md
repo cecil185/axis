@@ -10,7 +10,7 @@ bd show <id>          # View issue details
 bd update <id> --claim  # Claim work atomically
 ```
 
-**Before ending a session:** You MUST push and create a PR. See [Landing the Plane](#landing-the-plane-session-completion) — work is NOT complete until `git push` and `gh pr create` succeed.
+**Before ending a session:** You must make UI changes to accompany your code changes. You MUST push and create a PR. See [Landing the Plane](#landing-the-plane-session-completion) — work is NOT complete until `git push` and `gh pr create` succeed. Create any future issues in beads.
 
 ## Non-Interactive Shell Commands
 
