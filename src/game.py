@@ -18,6 +18,7 @@ from .territory import (
 from .state import current_team
 from .valid_actions import can_skip, valid_attack_targets
 from .actions import attack, set_combat_hook, skip
+from .combat import roll_combat
 
 # Window: grid on left, sidebar on right
 CELL_SIZE = 120
@@ -52,6 +53,9 @@ SIDEBAR_TURN_GAP = 20
 SIDEBAR_SECTION_GAP = 6
 SIDEBAR_LINE_GAP = 2
 SIDEBAR_LINE_WIDTH = 2
+
+# Last combat result for UI: (attacker_team, attacker_roll, defender_roll) or None
+_last_combat: tuple[str, int, int] | None = None
 
 
 def cell_rect(row: int, col: int) -> pygame.Rect:
@@ -172,6 +176,14 @@ def _draw_sidebar(
     screen.blit(turn_surf, turn_rect)
     y = turn_rect.bottom + SIDEBAR_TURN_GAP
 
+    if _last_combat is not None:
+        att_team, att_roll, def_roll = _last_combat
+        def_team = "Blue" if att_team == "Red" else "Red"
+        combat_label = f"Last combat: {att_team} {att_roll} vs {def_team} {def_roll}"
+        combat_surf = small_font.render(combat_label, True, TEXT_COLOR)
+        screen.blit(combat_surf, (sidebar.x + SIDEBAR_PAD, y))
+        y += combat_surf.get_height() + SIDEBAR_SECTION_GAP
+
     targets = valid_attack_targets()
     skip_ok = can_skip()
     moves_title = small_font.render("Possible moves", True, MOVES_TITLE_COLOR)
@@ -198,7 +210,12 @@ def main() -> None:
     btn_font = pygame.font.Font(None, FONT_SIZE_BTN)
 
     def on_combat(target_id: TerritoryId) -> None:
-        set_owner(target_id, current_team())
+        global _last_combat
+        att = current_team()
+        def_team = owner(target_id)
+        att_roll, def_roll = roll_combat(att, def_team, target_id)
+        _last_combat = (att, att_roll, def_roll)
+        set_owner(target_id, att)
 
     set_combat_hook(on_combat)
 
