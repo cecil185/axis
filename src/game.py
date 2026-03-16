@@ -58,6 +58,10 @@ SIDEBAR_LINE_WIDTH = 2
 # winner is "attacker" | "defender" from resolve_combat
 _last_combat: tuple[str, int, int, str] | None = None
 
+# Highlight color for valid attack cells on hover
+HOVER_HIGHLIGHT_COLOR = (255, 255, 200)
+HOVER_HIGHLIGHT_WIDTH = 4
+
 
 def cell_rect(row: int, col: int) -> pygame.Rect:
     """Rect for a grid cell (left side only)."""
@@ -111,8 +115,11 @@ def _handle_events(sidebar: pygame.Rect) -> bool:
     return True
 
 
-def _draw_grid(screen: pygame.Surface, font: pygame.font.Font) -> None:
-    """Draw the 2×2 territory grid on the left."""
+def _draw_grid(
+    screen: pygame.Surface, font: pygame.font.Font, mouse_pos: tuple[int, int] | None = None
+) -> None:
+    """Draw the 2×2 territory grid on the left. Optionally highlight valid attack cell under mouse."""
+    targets = set(valid_attack_targets())
     for row in range(GRID_ROWS):
         for col in range(GRID_COLS):
             tid = get_territory_at(row, col)
@@ -120,6 +127,10 @@ def _draw_grid(screen: pygame.Surface, font: pygame.font.Font) -> None:
                 continue
             r = cell_rect(row, col)
             pygame.draw.rect(screen, TEAM_COLORS[owner(tid)], r, border_radius=BORDER_RADIUS)
+            if mouse_pos is not None and r.collidepoint(mouse_pos) and tid in targets:
+                pygame.draw.rect(
+                    screen, HOVER_HIGHLIGHT_COLOR, r, width=HOVER_HIGHLIGHT_WIDTH, border_radius=BORDER_RADIUS
+                )
             text = font.render(tid, True, TEXT_COLOR)
             tr = text.get_rect(center=r.center)
             screen.blit(text, tr)
@@ -133,15 +144,18 @@ def _show_combat_popup(
     combat_winner: str,
     clock: pygame.time.Clock,
 ) -> None:
-    """Show battle stats and winner in a modal popup; wait for any key to close."""
+    """Show battle stats and outcome in a modal popup; wait for any key to close."""
     def_team = "Blue" if att_team == "Red" else "Red"
-    winner_team = att_team if combat_winner == "attacker" else def_team
+    attacker_wins = att_roll > def_roll
+    outcome = f"{att_team} wins!" if attacker_wins else "Defender holds!"
+    outcome_color = TEAM_COLORS[att_team] if attacker_wins else TEAM_COLORS[def_team]
+
     overlay = pygame.Surface((WIDTH, HEIGHT))
     overlay.set_alpha(200)
     overlay.fill((0, 0, 0))
     screen.blit(overlay, (0, 0))
 
-    popup_w, popup_h = 320, 180
+    popup_w, popup_h = 320, 170
     popup_x = (WIDTH - popup_w) // 2
     popup_y = (HEIGHT - popup_h) // 2
     popup_rect = pygame.Rect(popup_x, popup_y, popup_w, popup_h)
@@ -154,12 +168,10 @@ def _show_combat_popup(
     screen.blit(title, title.get_rect(centerx=popup_rect.centerx, top=popup_y + 16))
     msg = font.render(f"{att_team} {att_roll}  vs  {def_team} {def_roll}", True, TEXT_COLOR)
     screen.blit(msg, msg.get_rect(centerx=popup_rect.centerx, top=popup_y + 56))
-    result_txt = f"{winner_team} wins!"
-    result_color = TEAM_COLORS.get(winner_team, TEXT_COLOR)
-    result = font.render(result_txt, True, result_color)
-    screen.blit(result, result.get_rect(centerx=popup_rect.centerx, top=popup_y + 96))
-    hint = small_font.render("Press any key to close", True, MOVES_TITLE_COLOR)
-    screen.blit(hint, hint.get_rect(centerx=popup_rect.centerx, top=popup_y + 140))
+    outcome_surf = font.render(outcome, True, outcome_color)
+    screen.blit(outcome_surf, outcome_surf.get_rect(centerx=popup_rect.centerx, top=popup_y + 96))
+    hint = pygame.font.Font(None, 24).render("Press any key to close", True, MOVES_TITLE_COLOR)
+    screen.blit(hint, hint.get_rect(centerx=popup_rect.centerx, top=popup_y + 130))
     pygame.display.flip()
 
     waiting = True
@@ -271,7 +283,7 @@ def main() -> None:
             break
 
         screen.fill(BG_COLOR)
-        _draw_grid(screen, font)
+        _draw_grid(screen, font, pygame.mouse.get_pos())
         _draw_sidebar(screen, sidebar, small_font, btn_font)
         pygame.display.flip()
         if _last_combat is not None:
