@@ -18,7 +18,7 @@ from .territory import (
 from .state import current_team
 from .valid_actions import can_skip, valid_attack_targets
 from .actions import attack, set_combat_hook, skip
-from .combat import roll_combat
+from .combat import roll_combat, resolve_combat
 
 # Window: grid on left, sidebar on right
 CELL_SIZE = 120
@@ -54,8 +54,9 @@ SIDEBAR_SECTION_GAP = 6
 SIDEBAR_LINE_GAP = 2
 SIDEBAR_LINE_WIDTH = 2
 
-# Last combat result for UI: (attacker_team, attacker_roll, defender_roll) or None
-_last_combat: tuple[str, int, int] | None = None
+# Last combat result for UI: (attacker_team, attacker_roll, defender_roll, winner) or None
+# winner is "attacker" | "defender" from resolve_combat
+_last_combat: tuple[str, int, int, str] | None = None
 
 
 def cell_rect(row: int, col: int) -> pygame.Rect:
@@ -129,16 +130,18 @@ def _show_combat_popup(
     att_team: str,
     att_roll: int,
     def_roll: int,
+    combat_winner: str,
     clock: pygame.time.Clock,
 ) -> None:
-    """Show battle stats in a modal popup; wait for any key to close."""
+    """Show battle stats and winner in a modal popup; wait for any key to close."""
     def_team = "Blue" if att_team == "Red" else "Red"
+    winner_team = att_team if combat_winner == "attacker" else def_team
     overlay = pygame.Surface((WIDTH, HEIGHT))
     overlay.set_alpha(200)
     overlay.fill((0, 0, 0))
     screen.blit(overlay, (0, 0))
 
-    popup_w, popup_h = 320, 140
+    popup_w, popup_h = 320, 180
     popup_x = (WIDTH - popup_w) // 2
     popup_y = (HEIGHT - popup_h) // 2
     popup_rect = pygame.Rect(popup_x, popup_y, popup_w, popup_h)
@@ -146,12 +149,17 @@ def _show_combat_popup(
     pygame.draw.rect(screen, SIDEBAR_BORDER, popup_rect, 2, border_radius=BORDER_RADIUS)
 
     font = pygame.font.Font(None, 48)
+    small_font = pygame.font.Font(None, 24)
     title = font.render("Combat", True, MOVES_TITLE_COLOR)
     screen.blit(title, title.get_rect(centerx=popup_rect.centerx, top=popup_y + 16))
     msg = font.render(f"{att_team} {att_roll}  vs  {def_team} {def_roll}", True, TEXT_COLOR)
     screen.blit(msg, msg.get_rect(centerx=popup_rect.centerx, top=popup_y + 56))
-    hint = pygame.font.Font(None, 24).render("Press any key to close", True, MOVES_TITLE_COLOR)
-    screen.blit(hint, hint.get_rect(centerx=popup_rect.centerx, top=popup_y + 100))
+    result_txt = f"{winner_team} wins!"
+    result_color = TEAM_COLORS.get(winner_team, TEXT_COLOR)
+    result = font.render(result_txt, True, result_color)
+    screen.blit(result, result.get_rect(centerx=popup_rect.centerx, top=popup_y + 96))
+    hint = small_font.render("Press any key to close", True, MOVES_TITLE_COLOR)
+    screen.blit(hint, hint.get_rect(centerx=popup_rect.centerx, top=popup_y + 140))
     pygame.display.flip()
 
     waiting = True
@@ -247,8 +255,9 @@ def main() -> None:
         att = current_team()
         def_team = owner(target_id)
         att_roll, def_roll = roll_combat(att, def_team, target_id)
-        _last_combat = (att, att_roll, def_roll)
-        if att_roll > def_roll:
+        combat_winner = resolve_combat(att_roll, def_roll)
+        _last_combat = (att, att_roll, def_roll, combat_winner)
+        if combat_winner == "attacker":
             set_owner(target_id, att)
 
     set_combat_hook(on_combat)
@@ -266,8 +275,8 @@ def main() -> None:
         _draw_sidebar(screen, sidebar, small_font, btn_font)
         pygame.display.flip()
         if _last_combat is not None:
-            att_team, att_roll, def_roll = _last_combat
-            _show_combat_popup(screen, att_team, att_roll, def_roll, clock)
+            att_team, att_roll, def_roll, combat_winner = _last_combat
+            _show_combat_popup(screen, att_team, att_roll, def_roll, combat_winner, clock)
             _last_combat = None
             continue
         if is_game_over():

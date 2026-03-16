@@ -1,8 +1,8 @@
-"""Tests for combat dice rolls (axis-fio 3.1)."""
+"""Tests for combat dice rolls (axis-fio 3.1) and resolve_combat (axis-7xa)."""
 
 import pytest
 
-from src.combat import roll_combat
+from src.combat import resolve_combat, roll_combat
 
 RED = "Red"
 BLUE: str = "Blue"
@@ -49,3 +49,21 @@ def test_roll_combat_rng_must_return_1_to_6() -> None:
         roll_combat(RED, BLUE, "A", rng=lambda: 0)
     with pytest.raises(ValueError, match="1–6"):
         roll_combat(RED, BLUE, "A", rng=lambda: 7)
+
+
+# --- resolve_combat (axis-7xa) ---
+
+
+def test_resolve_combat_attacker_wins_when_higher() -> None:
+    assert resolve_combat(5, 3) == "attacker"
+    assert resolve_combat(6, 1) == "attacker"
+
+
+def test_resolve_combat_defender_wins_when_higher() -> None:
+    assert resolve_combat(2, 4) == "defender"
+    assert resolve_combat(1, 6) == "defender"
+
+
+def test_resolve_combat_tie_goes_to_defender() -> None:
+    assert resolve_combat(3, 3) == "defender"
+    assert resolve_combat(6, 6) == "defender"
