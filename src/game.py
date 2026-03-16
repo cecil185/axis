@@ -124,6 +124,46 @@ def _draw_grid(screen: pygame.Surface, font: pygame.font.Font) -> None:
             screen.blit(text, tr)
 
 
+def _show_combat_popup(
+    screen: pygame.Surface,
+    att_team: str,
+    att_roll: int,
+    def_roll: int,
+    clock: pygame.time.Clock,
+) -> None:
+    """Show battle stats in a modal popup; wait for any key to close."""
+    def_team = "Blue" if att_team == "Red" else "Red"
+    overlay = pygame.Surface((WIDTH, HEIGHT))
+    overlay.set_alpha(200)
+    overlay.fill((0, 0, 0))
+    screen.blit(overlay, (0, 0))
+
+    popup_w, popup_h = 320, 140
+    popup_x = (WIDTH - popup_w) // 2
+    popup_y = (HEIGHT - popup_h) // 2
+    popup_rect = pygame.Rect(popup_x, popup_y, popup_w, popup_h)
+    pygame.draw.rect(screen, SIDEBAR_BG, popup_rect, border_radius=BORDER_RADIUS)
+    pygame.draw.rect(screen, SIDEBAR_BORDER, popup_rect, 2, border_radius=BORDER_RADIUS)
+
+    font = pygame.font.Font(None, 48)
+    title = font.render("Combat", True, MOVES_TITLE_COLOR)
+    screen.blit(title, title.get_rect(centerx=popup_rect.centerx, top=popup_y + 16))
+    msg = font.render(f"{att_team} {att_roll}  vs  {def_team} {def_roll}", True, TEXT_COLOR)
+    screen.blit(msg, msg.get_rect(centerx=popup_rect.centerx, top=popup_y + 56))
+    hint = pygame.font.Font(None, 24).render("Press any key to close", True, MOVES_TITLE_COLOR)
+    screen.blit(hint, hint.get_rect(centerx=popup_rect.centerx, top=popup_y + 100))
+    pygame.display.flip()
+
+    waiting = True
+    while waiting:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                waiting = False
+            if event.type == pygame.KEYDOWN:
+                waiting = False
+        clock.tick(FPS)
+
+
 def _show_winner_popup(
     screen: pygame.Surface, winning_team: str, clock: pygame.time.Clock
 ) -> None:
@@ -176,14 +216,6 @@ def _draw_sidebar(
     screen.blit(turn_surf, turn_rect)
     y = turn_rect.bottom + SIDEBAR_TURN_GAP
 
-    if _last_combat is not None:
-        att_team, att_roll, def_roll = _last_combat
-        def_team = "Blue" if att_team == "Red" else "Red"
-        combat_label = f"Last combat: {att_team} {att_roll} vs {def_team} {def_roll}"
-        combat_surf = small_font.render(combat_label, True, TEXT_COLOR)
-        screen.blit(combat_surf, (sidebar.x + SIDEBAR_PAD, y))
-        y += combat_surf.get_height() + SIDEBAR_SECTION_GAP
-
     targets = valid_attack_targets()
     skip_ok = can_skip()
     moves_title = small_font.render("Possible moves", True, MOVES_TITLE_COLOR)
@@ -202,6 +234,7 @@ def _draw_sidebar(
 
 
 def main() -> None:
+    global _last_combat
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption(TITLE)
@@ -215,7 +248,8 @@ def main() -> None:
         def_team = owner(target_id)
         att_roll, def_roll = roll_combat(att, def_team, target_id)
         _last_combat = (att, att_roll, def_roll)
-        set_owner(target_id, att)
+        if att_roll > def_roll:
+            set_owner(target_id, att)
 
     set_combat_hook(on_combat)
 
@@ -231,6 +265,11 @@ def main() -> None:
         _draw_grid(screen, font)
         _draw_sidebar(screen, sidebar, small_font, btn_font)
         pygame.display.flip()
+        if _last_combat is not None:
+            att_team, att_roll, def_roll = _last_combat
+            _show_combat_popup(screen, att_team, att_roll, def_roll, clock)
+            _last_combat = None
+            continue
         if is_game_over():
             w = winner()
             if w is not None:
