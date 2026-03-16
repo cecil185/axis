@@ -19,6 +19,7 @@ from .state import current_team
 from .valid_actions import can_skip, valid_attack_targets
 from .actions import attack, set_combat_hook, skip
 from .combat import roll_combat
+from .unit_types import ALL_UNIT_TYPE_IDS, get_unit_stats
 
 # Window: grid on left, sidebar on right
 CELL_SIZE = 120
@@ -226,6 +227,19 @@ def _draw_sidebar(
     y += attack_txt.get_height() + SIDEBAR_LINE_GAP
     skip_txt = small_font.render(f"Skip: {'yes' if skip_ok else 'no'}", True, TEXT_COLOR)
     screen.blit(skip_txt, (sidebar.x + SIDEBAR_PAD, y))
+    y += skip_txt.get_height() + SIDEBAR_TURN_GAP
+
+    # Unit types reference (health / defense)
+    unit_title = small_font.render("Unit types", True, MOVES_TITLE_COLOR)
+    screen.blit(unit_title, (sidebar.x + SIDEBAR_PAD, y))
+    y += unit_title.get_height() + SIDEBAR_SECTION_GAP
+    for uid in ALL_UNIT_TYPE_IDS:
+        stats = get_unit_stats(uid)
+        line = small_font.render(
+            f"{uid}: HP {stats['health']} DEF {stats['defense']}", True, TEXT_COLOR
+        )
+        screen.blit(line, (sidebar.x + SIDEBAR_PAD, y))
+        y += line.get_height() + SIDEBAR_LINE_GAP
 
     btn = end_turn_button_rect(sidebar)
     pygame.draw.rect(screen, BTN_BG, btn, border_radius=BORDER_RADIUS)

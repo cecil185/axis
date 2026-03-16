@@ -16,6 +16,7 @@ from .state import current_team, end_turn
 from .valid_actions import can_skip, valid_attack_targets
 from .actions import attack, set_combat_hook, skip
 from .combat import roll_combat, CombatRolls
+from .unit_types import ALL_UNIT_TYPE_IDS, get_unit_stats, UnitStats, UnitTypeId
 
 __all__ = [
     "ALL_TERRITORY_IDS",
@@ -39,4 +40,8 @@ __all__ = [
     "set_combat_hook",
     "roll_combat",
     "CombatRolls",
+    "ALL_UNIT_TYPE_IDS",
+    "get_unit_stats",
+    "UnitStats",
+    "UnitTypeId",
 ]
