@@ -15,7 +15,7 @@ from .territory import (
 from .state import current_team, end_turn
 from .valid_actions import can_skip, valid_attack_targets
 from .actions import attack, set_combat_hook, skip
-from .combat import roll_combat, CombatRolls
+from .combat import roll_combat, resolve_combat, CombatRolls, CombatWinner
 
 __all__ = [
     "ALL_TERRITORY_IDS",
@@ -38,5 +38,7 @@ __all__ = [
     "attack",
     "set_combat_hook",
     "roll_combat",
+    "resolve_combat",
     "CombatRolls",
+    "CombatWinner",
 ]

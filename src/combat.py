@@ -1,13 +1,22 @@
 """
-Combat dice rolls (1–6 per side). No winner resolution or ownership changes.
+Combat dice rolls (1–6 per side) and winner resolution. No ownership changes in this module.
 """
 
 import random
-from typing import Callable
+from typing import Callable, Literal
 
 from .territory import Team, TerritoryId
 
 CombatRolls = tuple[int, int]  # (attacker_roll, defender_roll)
+CombatWinner = Literal["attacker", "defender"]
+
+
+def resolve_combat(att_roll: int, def_roll: int) -> CombatWinner:
+    """
+    Resolve combat from rolls: higher roll wins; tie goes to defender.
+    Returns 'attacker' or 'defender'.
+    """
+    return "attacker" if att_roll > def_roll else "defender"
 
 
 def _roll_d6(rng: random.Random) -> int:
