@@ -60,9 +60,10 @@ SIDEBAR_SECTION_GAP = 6
 SIDEBAR_LINE_GAP = 2
 SIDEBAR_LINE_WIDTH = 2
 
-# Last combat result for UI: (attacker_team, attacker_roll, defender_roll, winner, defending_territory_id) or None
+# Last combat result for UI:
+# (attacker_team, attacker_roll, defender_roll, winner, defending_territory_id, attacking_territory_id | None)
 # winner is "attacker" | "defender" from resolve_combat
-_last_combat: tuple[str, int, int, str, TerritoryId] | None = None
+_last_combat: tuple[str, int, int, str, TerritoryId, TerritoryId | None] | None = None
 
 # Currently selected territory to attack FROM (green outline); None if none selected
 _selected_territory: TerritoryId | None = None
@@ -261,20 +262,27 @@ def _show_combat_popup(
     combat_winner: str,
     def_territory_id: TerritoryId,
     clock: pygame.time.Clock,
+    att_territory_id: TerritoryId | None = None,
 ) -> None:
     """Show battle stats and outcome in a modal popup; wait for any key to close."""
-    def_team = "Blue" if att_team == "Red" else "Red"
+    from .combat import _effective_attack_bonus, _effective_defense_bonus  # noqa: PLC0415
+    def_team: str = "Blue" if att_team == "Red" else "Red"
     attacker_wins = combat_winner == "attacker"
     outcome = f"{att_team} wins!" if attacker_wins else "Defender holds!"
     outcome_color = TEAM_COLORS[att_team] if attacker_wins else TEAM_COLORS[def_team]
     def_name = display_name(def_territory_id)
+
+    # Compute unit stat bonuses for display
+    att_bonus = _effective_attack_bonus(att_team, att_territory_id) if att_territory_id else 0  # type: ignore[arg-type]
+    def_bonus = _effective_defense_bonus(def_team, def_territory_id)  # type: ignore[arg-type]
+    bonus_text = f"Att +{att_bonus}  Def +{def_bonus}" if (att_bonus or def_bonus) else ""
 
     overlay = pygame.Surface((WIDTH, HEIGHT))
     overlay.set_alpha(200)
     overlay.fill((0, 0, 0))
     screen.blit(overlay, (0, 0))
 
-    popup_w, popup_h = 320, 190
+    popup_w, popup_h = 320, 210
     popup_x = (WIDTH - popup_w) // 2
     popup_y = (HEIGHT - popup_h) // 2
     popup_rect = pygame.Rect(popup_x, popup_y, popup_w, popup_h)
@@ -283,15 +291,18 @@ def _show_combat_popup(
     font = pygame.font.Font(None, 48)
     small_font = pygame.font.Font(None, 24)
     title = font.render("Combat", True, MOVES_TITLE_COLOR)
-    screen.blit(title, title.get_rect(centerx=popup_rect.centerx, top=popup_y + 16))
+    screen.blit(title, title.get_rect(centerx=popup_rect.centerx, top=popup_y + 14))
     msg = font.render(f"{att_team} {att_roll}  vs  {def_team} {def_roll}", True, TEXT_COLOR)
-    screen.blit(msg, msg.get_rect(centerx=popup_rect.centerx, top=popup_y + 52))
+    screen.blit(msg, msg.get_rect(centerx=popup_rect.centerx, top=popup_y + 50))
+    if bonus_text:
+        bonus_surf = small_font.render(bonus_text, True, MOVES_TITLE_COLOR)
+        screen.blit(bonus_surf, bonus_surf.get_rect(centerx=popup_rect.centerx, top=popup_y + 86))
     defending_label = small_font.render(f"Defending: {def_name}", True, MOVES_TITLE_COLOR)
-    screen.blit(defending_label, defending_label.get_rect(centerx=popup_rect.centerx, top=popup_y + 88))
+    screen.blit(defending_label, defending_label.get_rect(centerx=popup_rect.centerx, top=popup_y + 104))
     outcome_surf = font.render(outcome, True, outcome_color)
-    screen.blit(outcome_surf, outcome_surf.get_rect(centerx=popup_rect.centerx, top=popup_y + 112))
+    screen.blit(outcome_surf, outcome_surf.get_rect(centerx=popup_rect.centerx, top=popup_y + 128))
     hint = pygame.font.Font(None, 24).render("Press any key to close", True, MOVES_TITLE_COLOR)
-    screen.blit(hint, hint.get_rect(centerx=popup_rect.centerx, top=popup_y + 152))
+    screen.blit(hint, hint.get_rect(centerx=popup_rect.centerx, top=popup_y + 172))
     pygame.display.flip()
     waiting = True
     while waiting:
@@ -391,12 +402,13 @@ def main() -> None:
         global _last_combat
         att = current_team()
         att_roll, def_roll = roll_combat()
+        att_tid = _selected_territory
         # Apply unit stats if an attacking territory is selected
-        if _selected_territory is not None:
-            combat_winner = resolve_combat_with_units(att_roll, def_roll, att, _selected_territory, target_id)
+        if att_tid is not None:
+            combat_winner = resolve_combat_with_units(att_roll, def_roll, att, att_tid, target_id)
         else:
             combat_winner = resolve_combat(att_roll, def_roll)
-        _last_combat = (att, att_roll, def_roll, combat_winner, target_id)
+        _last_combat = (att, att_roll, def_roll, combat_winner, target_id, att_tid)
         if combat_winner == "attacker":
             set_owner(target_id, att)
 
@@ -426,8 +438,8 @@ def main() -> None:
         _draw_right_sidebar(screen, sidebar, small_font, btn_font)
         pygame.display.flip()
         if _last_combat is not None:
-            att_team, att_roll, def_roll, combat_winner, def_tid = _last_combat
-            _show_combat_popup(screen, att_team, att_roll, def_roll, combat_winner, def_tid, clock)
+            att_team, att_roll, def_roll, combat_winner, def_tid, att_tid = _last_combat
+            _show_combat_popup(screen, att_team, att_roll, def_roll, combat_winner, def_tid, clock, att_tid)
             _last_combat = None
             continue
         if is_game_over():
