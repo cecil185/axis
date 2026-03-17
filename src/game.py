@@ -12,6 +12,7 @@ from .territory import (
     display_name,
     is_game_over,
     map_position,
+    neighbors,
     owner,
     set_owner,
     territory_at_point,
@@ -60,6 +61,9 @@ SIDEBAR_LINE_WIDTH = 2
 # winner is "attacker" | "defender" from resolve_combat
 _last_combat: tuple[str, int, int, str, TerritoryId] | None = None
 
+# Currently selected territory to attack FROM (green outline); None if none selected
+_selected_territory: TerritoryId | None = None
+
 # Highlight color for valid attack cells on hover
 HOVER_HIGHLIGHT_COLOR = (255, 255, 200)
 HOVER_HIGHLIGHT_WIDTH = 4
@@ -98,6 +102,7 @@ def _load_map_surface() -> pygame.Surface | None:
 
 
 def _handle_events(sidebar: pygame.Rect, map_surf: pygame.Surface | None) -> bool:
+    global _selected_territory
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             return False
@@ -106,14 +111,30 @@ def _handle_events(sidebar: pygame.Rect, map_surf: pygame.Surface | None) -> boo
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if end_turn_button_rect(sidebar).collidepoint(event.pos):
                 skip()
+                _selected_territory = None
             else:
                 mx, my, mw, mh = _map_rect().x, _map_rect().y, _map_rect().w, _map_rect().h
                 tid = territory_at_point((mx, my, mw, mh), event.pos[0], event.pos[1], MARKER_RADIUS + 4)
-                if tid is not None and tid in valid_attack_targets():
+                if tid is None:
+                    # Clicked empty space: deselect
+                    _selected_territory = None
+                elif owner(tid) == current_team():
+                    # Clicked own territory: select it as attack-from
+                    _selected_territory = tid
+                elif (
+                    _selected_territory is not None
+                    and tid in valid_attack_targets()
+                    and tid in neighbors(_selected_territory)
+                ):
+                    # Clicked valid target adjacent to selected: execute attack
                     try:
                         attack(tid)
                     except ValueError as e:
                         logging.warning("Invalid attack ignored: %s", e)
+                    _selected_territory = None
+                else:
+                    # Clicked elsewhere (non-owned, non-valid-target): deselect
+                    _selected_territory = None
     return True
 
 
@@ -155,22 +176,38 @@ def _draw_map(
     map_rect: pygame.Rect,
     map_surf: pygame.Surface | None,
     mouse_pos: tuple[int, int] | None = None,
+    selected: TerritoryId | None = None,
 ) -> None:
     """Draw map image and territory markers; highlight valid attack target under mouse."""
     if map_surf is not None:
         screen.blit(map_surf, map_rect.topleft)
     mx, my, mw, mh = map_rect.x, map_rect.y, map_rect.w, map_rect.h
-    targets = set(valid_attack_targets())
+    all_targets = set(valid_attack_targets())
+    # When a territory is selected, yellow outlines only on its enemy neighbors
+    if selected is not None:
+        selected_targets = {t for t in neighbors(selected) if t in all_targets}
+    else:
+        selected_targets = all_targets
     for tid in ALL_TERRITORY_IDS:
         x_frac, y_frac = map_position(tid)
         tx = int(mx + x_frac * mw)
         ty = int(my + y_frac * mh)
         pygame.draw.circle(screen, TEAM_COLORS[owner(tid)], (tx, ty), MARKER_RADIUS)
         pygame.draw.circle(screen, SIDEBAR_BORDER, (tx, ty), MARKER_RADIUS, MARKER_BORDER)
+        # Green outline ring on selected territory
+        if tid == selected:
+            pygame.draw.circle(
+                screen,
+                (80, 200, 80),
+                (tx, ty),
+                MARKER_RADIUS + 5,
+                width=3,
+            )
+        # Yellow outline on hover over a valid target
         is_hover = (
             mouse_pos is not None
             and (mouse_pos[0] - tx) ** 2 + (mouse_pos[1] - ty) ** 2 <= (MARKER_RADIUS + 4) ** 2
-            and tid in targets
+            and tid in selected_targets
         )
         if is_hover:
             pygame.draw.circle(
@@ -308,7 +345,7 @@ def _draw_right_sidebar(
 
 
 def main() -> None:
-    global _last_combat
+    global _last_combat, _selected_territory
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption(TITLE)
@@ -330,13 +367,17 @@ def main() -> None:
     clock = pygame.time.Clock()
     running = True
     while running:
+        prev_team = current_team()
         running = _handle_events(right_sidebar_rect(), map_surf)
         if not running:
             break
+        # Clear selection after end_turn (team changed)
+        if current_team() != prev_team:
+            _selected_territory = None
         screen.fill(BG_COLOR)
         sidebar = right_sidebar_rect()
         mouse_pos = pygame.mouse.get_pos()
-        _draw_map(screen, _map_rect(), map_surf, mouse_pos)
+        _draw_map(screen, _map_rect(), map_surf, mouse_pos, _selected_territory)
         _draw_coord_tooltip(screen, _map_rect(), mouse_pos, small_font)
         _draw_bottom_bar(screen, bottom_bar_rect(), small_font)
         _draw_right_sidebar(screen, sidebar, small_font, btn_font)
