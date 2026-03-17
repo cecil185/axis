@@ -5,7 +5,7 @@ Combat dice rolls (1–6 per side) and winner resolution. No ownership changes i
 import random
 from typing import Callable, Literal
 
-from .territory import Team, TerritoryId
+from .territory import Team
 
 CombatRolls = tuple[int, int]  # (attacker_roll, defender_roll)
 CombatWinner = Literal["attacker", "defender"]
@@ -25,9 +25,6 @@ def _roll_d6(rng: random.Random) -> int:
 
 
 def roll_combat(
-    attacker_team: Team,
-    defender_team: Team,
-    contested_territory_id: TerritoryId,
     *,
     rng: Callable[[], int] | None = None,
     seed: int | None = None,
@@ -38,8 +35,6 @@ def roll_combat(
     Optional:
     - rng: callable that returns 1–6 per call; used for both rolls (e.g. for tests).
     - seed: if rng is None, use random.Random(seed) for deterministic rolls.
-
-    contested_territory_id is for logging/context; no ownership or winner resolution here.
     """
     if rng is not None:
         a = rng()

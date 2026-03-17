@@ -97,7 +97,7 @@ def _load_map_surface() -> pygame.Surface | None:
     return pygame.transform.smoothscale(img, (MAP_WIDTH, MAP_HEIGHT))
 
 
-def _handle_events(sidebar: pygame.Rect, map_surf: pygame.Surface | None) -> bool:
+def _handle_events(sidebar: pygame.Rect, map_surf: pygame.Surface | None, map_rect: pygame.Rect) -> bool:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             return False
@@ -107,7 +107,8 @@ def _handle_events(sidebar: pygame.Rect, map_surf: pygame.Surface | None) -> boo
             if end_turn_button_rect(sidebar).collidepoint(event.pos):
                 skip()
             else:
-                mx, my, mw, mh = _map_rect().x, _map_rect().y, _map_rect().w, _map_rect().h
+                r = map_rect
+                mx, my, mw, mh = r.x, r.y, r.w, r.h
                 tid = territory_at_point((mx, my, mw, mh), event.pos[0], event.pos[1], MARKER_RADIUS + 4)
                 if tid is not None and tid in valid_attack_targets():
                     try:
@@ -193,7 +194,7 @@ def _show_combat_popup(
 ) -> None:
     """Show battle stats and outcome in a modal popup; wait for any key to close."""
     def_team = "Blue" if att_team == "Red" else "Red"
-    attacker_wins = att_roll > def_roll
+    attacker_wins = combat_winner == "attacker"
     outcome = f"{att_team} wins!" if attacker_wins else "Defender holds!"
     outcome_color = TEAM_COLORS[att_team] if attacker_wins else TEAM_COLORS[def_team]
     def_name = display_name(def_territory_id)
@@ -320,7 +321,7 @@ def main() -> None:
         global _last_combat
         att = current_team()
         def_team = owner(target_id)
-        att_roll, def_roll = roll_combat(att, def_team, target_id)
+        att_roll, def_roll = roll_combat()
         combat_winner = resolve_combat(att_roll, def_roll)
         _last_combat = (att, att_roll, def_roll, combat_winner, target_id)
         if combat_winner == "attacker":
@@ -330,15 +331,16 @@ def main() -> None:
     clock = pygame.time.Clock()
     running = True
     while running:
-        running = _handle_events(right_sidebar_rect(), map_surf)
+        map_rect = _map_rect()
+        running = _handle_events(right_sidebar_rect(), map_surf, map_rect)
         if not running:
             break
         screen.fill(BG_COLOR)
         sidebar = right_sidebar_rect()
         mouse_pos = pygame.mouse.get_pos()
-        _draw_map(screen, _map_rect(), map_surf, mouse_pos)
-        _draw_coord_tooltip(screen, _map_rect(), mouse_pos, small_font)
-        _draw_bottom_bar(screen, bottom_bar_rect(), small_font)
+        _draw_map(screen, map_rect, map_surf, mouse_pos)
+        _draw_coord_tooltip(screen, map_rect, mouse_pos, small_font)
+        _draw_bottom_bar(screen, bottom_bar_rect())
         _draw_right_sidebar(screen, sidebar, small_font, btn_font)
         pygame.display.flip()
         if _last_combat is not None:
