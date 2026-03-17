@@ -1,63 +1,197 @@
 """
-Territory IDs, 2×2 grid layout, and ownership.
+Pacific map: 29 territory IDs and metadata (region, display_name, map position).
+Single source of truth; adjacency by maritime/geographic proximity.
 """
 
-from typing import Literal
+from typing import Literal, TypedDict
 
-TerritoryId = Literal["A", "B", "C", "D"]
+TerritoryId = Literal[
+    "japan",
+    "indonesia",
+    "philippines",
+    "hawaii",
+    "midway",
+    "johnston",
+    "australia_west",
+    "marianas",
+    "minamitori",
+    "micronesia",
+    "belau",
+    "marshall",
+    "nauru",
+    "kiribati",
+    "tuvalu",
+    "solomon",
+    "papua_new_guinea",
+    "vanuatu",
+    "fiji",
+    "australia_east",
+    "tokelau",
+    "cook_islands",
+    "tonga",
+    "new_caledonia",
+    "new_zealand",
+    "french_polynesia",
+    "clipperton",
+    "pitcairn",
+    "rapa_nui",
+]
 Team = Literal["Red", "Blue"]
 
-# All four territory IDs in grid order (A, B, C, D).
-ALL_TERRITORY_IDS: tuple[TerritoryId, ...] = ("A", "B", "C", "D")
-
-# Grid dimensions: 2 rows, 2 columns.
-GRID_ROWS = 2
-GRID_COLS = 2
-
-# 2×2 grid: row 0 = top, 1 = bottom; col 0 = left, 1 = right.
-_GRID: tuple[tuple[TerritoryId, ...], ...] = (
-    ("A", "B"),  # row 0: top-left A, top-right B
-    ("C", "D"),  # row 1: bottom-left C, bottom-right D
+ALL_TERRITORY_IDS: tuple[TerritoryId, ...] = (
+    "japan",
+    "indonesia",
+    "philippines",
+    "hawaii",
+    "midway",
+    "johnston",
+    "australia_west",
+    "marianas",
+    "minamitori",
+    "micronesia",
+    "belau",
+    "marshall",
+    "nauru",
+    "kiribati",
+    "tuvalu",
+    "solomon",
+    "papua_new_guinea",
+    "vanuatu",
+    "fiji",
+    "australia_east",
+    "tokelau",
+    "cook_islands",
+    "tonga",
+    "new_caledonia",
+    "new_zealand",
+    "french_polynesia",
+    "clipperton",
+    "pitcairn",
+    "rapa_nui",
 )
 
 
-def get_territory_at(row: int, col: int) -> TerritoryId | None:
-    """Return the territory ID at (row, col), or None if out of bounds."""
-    if row < 0 or row >= GRID_ROWS or col < 0 or col >= GRID_COLS:
-        return None
-    return _GRID[row][col]
+class TerritoryInfo(TypedDict):
+    """Metadata for a territory: region, display_name, and map position (x_frac, y_frac)."""
+
+    region: str
+    display_name: str
+    x_frac: float
+    y_frac: float
 
 
-def get_position_of(tid: TerritoryId) -> tuple[int, int] | None:
-    """Return (row, col) for a territory ID, or None if invalid."""
-    for r in range(GRID_ROWS):
-        for c in range(GRID_COLS):
-            if _GRID[r][c] == tid:
-                return (r, c)
+# Region, display name, and position on map (0–1 fractions: x left→right = Asia→Americas, y top→bottom).
+# Tuned for Pacific-centered map (src/img/map.jpg); dots sit on/near each EEZ/territory.
+_METADATA: dict[TerritoryId, TerritoryInfo] = {
+    "japan": {"region": "North Pacific", "display_name": "Japan", "x_frac": 0.2, "y_frac": 0.26},
+    "indonesia": {"region": "South Pacific", "display_name": "Indonesia", "x_frac": 0.10, "y_frac": 0.5},
+    "philippines": {"region": "North Pacific", "display_name": "Philippines", "x_frac": 0.08, "y_frac": 0.38},
+    "hawaii": {"region": "North Pacific", "display_name": "Hawaii", "x_frac": 0.56, "y_frac": 0.31},
+    "midway": {"region": "North Pacific", "display_name": "Midway", "x_frac": 0.4, "y_frac": 0.27},
+    "johnston": {"region": "North Pacific", "display_name": "Johnston", "x_frac": 0.47, "y_frac": 0.36},
+    "australia_west": {"region": "North Pacific", "display_name": "australia_west", "x_frac": 0.12, "y_frac": 0.63},
+    "marianas": {"region": "North Pacific", "display_name": "Marianas", "x_frac": 0.21, "y_frac": 0.31},
+    "minamitori": {"region": "North Pacific", "display_name": "Minamitori", "x_frac": 0.27, "y_frac": 0.27},
+    "micronesia": {"region": "Central Pacific", "display_name": "Micronesia", "x_frac": 0.285, "y_frac": 0.415},
+    "belau": {"region": "Central Pacific", "display_name": "Belau", "x_frac": 0.14, "y_frac": 0.41},
+    "marshall": {"region": "Central Pacific", "display_name": "Marshall", "x_frac": 0.345, "y_frac": 0.40},
+    "nauru": {"region": "Central Pacific", "display_name": "Nauru", "x_frac": 0.335, "y_frac": 0.465},
+    "kiribati": {"region": "Central Pacific", "display_name": "Kiribati", "x_frac": 0.58, "y_frac": 0.51},
+    "tuvalu": {"region": "South Pacific", "display_name": "Tuvalu", "x_frac": 0.42, "y_frac": 0.494},
+    "solomon": {"region": "South Pacific", "display_name": "Solomon", "x_frac": 0.355, "y_frac": 0.52},
+    "papua_new_guinea": {"region": "South Pacific", "display_name": "Papua New Guinea", "x_frac": 0.24, "y_frac": 0.48},
+    "vanuatu": {"region": "South Pacific", "display_name": "Vanuatu", "x_frac": 0.36, "y_frac": 0.58},
+    "fiji": {"region": "South Pacific", "display_name": "Fiji", "x_frac": 0.40, "y_frac": 0.582},
+    "australia_east": {"region": "South Pacific", "display_name": "australia_east", "x_frac": 0.24, "y_frac": 0.63},
+    "tokelau": {"region": "South Pacific", "display_name": "Tokelau", "x_frac": 0.53, "y_frac": 0.585},
+    "cook_islands": {"region": "South Pacific", "display_name": "Cook Islands", "x_frac": 0.53, "y_frac": 0.585},
+    "tonga": {"region": "South Pacific", "display_name": "Tonga", "x_frac": 0.44, "y_frac": 0.58},
+    "new_caledonia": {"region": "South Pacific", "display_name": "New Caledonia", "x_frac": 0.33, "y_frac": 0.61},
+    "new_zealand": {"region": "South Pacific", "display_name": "new_zealand", "x_frac": 0.40, "y_frac": 0.76},
+    "french_polynesia": {"region": "South Pacific", "display_name": "French Polynesia", "x_frac": 0.64, "y_frac": 0.58},
+    "clipperton": {"region": "Eastern Pacific", "display_name": "Clipperton", "x_frac": 0.82, "y_frac": 0.42},
+    "pitcairn": {"region": "Eastern Pacific", "display_name": "Pitcairn", "x_frac": 0.74, "y_frac": 0.64},
+    "rapa_nui": {"region": "Eastern Pacific", "display_name": "Rapa Nui", "x_frac": 0.83, "y_frac": 0.70},
+}
+
+# Adjacency: each territory lists neighbors (symmetric). Based on Pacific geography / EEZ proximity.
+_ADJACENCY: dict[TerritoryId, list[TerritoryId]] = {
+    "japan": ["minamitori", "marianas"],
+    "indonesia": ["papua_new_guinea", "philippines"],
+    "philippines": ["marianas", "belau", "indonesia"],
+    "hawaii": ["midway", "johnston"],
+    "midway": ["hawaii", "australia_west"],
+    "johnston": ["hawaii", "marshall"],
+    "australia_west": ["midway", "marshall"],
+    "marianas": ["micronesia", "minamitori", "japan", "philippines"],
+    "minamitori": ["marianas", "japan"],
+    "micronesia": ["marianas", "belau", "marshall", "kiribati"],
+    "belau": ["micronesia", "papua_new_guinea", "philippines"],
+    "marshall": ["johnston", "australia_west", "micronesia", "kiribati", "nauru"],
+    "nauru": ["marshall", "kiribati", "solomon", "papua_new_guinea"],
+    "kiribati": ["marshall", "nauru", "micronesia", "tuvalu", "tokelau", "french_polynesia"],
+    "tuvalu": ["kiribati", "tokelau", "fiji"],
+    "solomon": ["papua_new_guinea", "nauru", "vanuatu", "fiji"],
+    "papua_new_guinea": ["belau", "nauru", "solomon", "vanuatu", "indonesia"],
+    "vanuatu": ["solomon", "papua_new_guinea", "fiji", "new_caledonia"],
+    "fiji": ["tuvalu", "solomon", "vanuatu", "tonga", "new_caledonia"],
+    "australia_east": ["cook_islands", "tonga"],
+    "tokelau": ["kiribati", "tuvalu", "cook_islands"],
+    "cook_islands": ["tokelau", "australia_east", "tonga", "french_polynesia"],
+    "tonga": ["fiji", "australia_east", "cook_islands", "new_caledonia", "new_zealand"],
+    "new_caledonia": ["vanuatu", "fiji", "tonga", "new_zealand"],
+    "new_zealand": ["tonga", "new_caledonia", "french_polynesia"],
+    "french_polynesia": ["kiribati", "cook_islands", "new_zealand", "pitcairn", "rapa_nui"],
+    "clipperton": ["pitcairn"],
+    "pitcairn": ["french_polynesia", "rapa_nui", "clipperton"],
+    "rapa_nui": ["french_polynesia", "pitcairn"],
+}
+
+
+def region(tid: TerritoryId) -> str:
+    """Return the region for the territory."""
+    return _METADATA[tid]["region"]
+
+
+def display_name(tid: TerritoryId) -> str:
+    """Return the display name for the territory."""
+    return _METADATA[tid]["display_name"]
+
+
+def map_position(tid: TerritoryId) -> tuple[float, float]:
+    """Return (x_frac, y_frac) position on the map (0–1)."""
+    m = _METADATA[tid]
+    return (m["x_frac"], m["y_frac"])
+
+
+def territory_info(tid: TerritoryId) -> TerritoryInfo:
+    """Return region, display_name, and map position for the territory."""
+    return _METADATA[tid].copy()
+
+
+def territory_at_point(
+    map_rect: tuple[int, int, int, int], px: int, py: int, radius_px: int = 18
+) -> TerritoryId | None:
+    """Return the territory whose marker contains (px, py), or None. map_rect = (x, y, w, h)."""
+    mx, my, mw, mh = map_rect
+    for tid in ALL_TERRITORY_IDS:
+        x_frac, y_frac = map_position(tid)
+        tx = int(mx + x_frac * mw)
+        ty = int(my + y_frac * mh)
+        if (px - tx) ** 2 + (py - ty) ** 2 <= radius_px**2:
+            return tid
     return None
 
 
 def neighbors(tid: TerritoryId) -> list[TerritoryId]:
-    """Return list of adjacent territory IDs (orthogonal only, no diagonals)."""
-    pos = get_position_of(tid)
-    if pos is None:
-        return []
-    row, col = pos
-    result: list[TerritoryId] = []
-    for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-        neighbor = get_territory_at(row + dr, col + dc)
-        if neighbor is not None:
-            result.append(neighbor)
-    return result
+    """Return list of adjacent territory IDs."""
+    return list(_ADJACENCY[tid])
 
 
-# Initial state: Red owns A and D; Blue owns B and C (symmetric corners).
-_owners: dict[TerritoryId, Team] = {
-    "A": "Red",
-    "B": "Blue",
-    "C": "Blue",
-    "D": "Red",
-}
+# Initial ownership: Red first 15, Blue last 14.
+_owners: dict[TerritoryId, Team] = {}
+for i, tid in enumerate(ALL_TERRITORY_IDS):
+    _owners[tid] = "Red" if i < 15 else "Blue"
 
 
 def owner(tid: TerritoryId) -> Team:
@@ -71,7 +205,7 @@ def set_owner(tid: TerritoryId, team: Team) -> None:
 
 
 def winner() -> Team | None:
-    """Return the team that owns all four territories, or None if game is not over."""
+    """Return the team that owns all territories, or None if game is not over."""
     first = owner(ALL_TERRITORY_IDS[0])
     for tid in ALL_TERRITORY_IDS[1:]:
         if owner(tid) != first:
@@ -80,5 +214,5 @@ def winner() -> Team | None:
 
 
 def is_game_over() -> bool:
-    """Return True iff one team owns all four territories (winner() is not None)."""
+    """Return True iff one team owns all territories (winner() is not None)."""
     return winner() is not None
