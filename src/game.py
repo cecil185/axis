@@ -1,17 +1,20 @@
 """
-Pygame 2×2 territory grid. Run with: python -m src.game
+Pygame Pacific map (29 territories). Run with: python -m src.game
+Uses src/img/map.jpg as background; territories are clickable markers.
 """
 
 import logging
+import os
 
 import pygame
 from .territory import (
-    GRID_ROWS,
-    GRID_COLS,
-    get_territory_at,
+    ALL_TERRITORY_IDS,
+    display_name,
     is_game_over,
+    map_position,
     owner,
     set_owner,
+    territory_at_point,
     TerritoryId,
     winner,
 )
@@ -20,80 +23,81 @@ from .valid_actions import can_skip, valid_attack_targets
 from .actions import attack, set_combat_hook, skip
 from .combat import roll_combat, resolve_combat
 
-# Window: grid on left, sidebar on right
-CELL_SIZE = 120
-MARGIN = 20
-SIDEBAR_WIDTH = 200
-SIDEBAR_PAD = 16
-BUTTON_HEIGHT = 44
-GRID_WIDTH = GRID_COLS * CELL_SIZE + (GRID_COLS + 1) * MARGIN
-GRID_HEIGHT = GRID_ROWS * CELL_SIZE + (GRID_ROWS + 1) * MARGIN
-WIDTH = GRID_WIDTH + MARGIN + SIDEBAR_WIDTH
-HEIGHT = GRID_HEIGHT
-TITLE = "Territory Grid (2×2)"
+# Layout: map on top, bottom bar underneath (left area) | right sidebar
+MARGIN = 16
+GAP = 8
+BOTTOM_BAR_HEIGHT = 72
+SIDEBAR_RIGHT_WIDTH = 280
+MAP_WIDTH = 1280
+MAP_HEIGHT = 648  # leaves room for bottom bar
+WIDTH = MAP_WIDTH + GAP + SIDEBAR_RIGHT_WIDTH
+HEIGHT = MAP_HEIGHT + BOTTOM_BAR_HEIGHT
+TITLE = "Pacific Map (29 territories)"
 
 # Theme
-BG_COLOR = (30, 30, 40)
-TEAM_COLORS = {"Red": (180, 70, 70), "Blue": (70, 70, 180)}
-TEXT_COLOR = (220, 220, 230)
-SIDEBAR_BG = (45, 45, 55)
-SIDEBAR_BORDER = (70, 70, 85)
-BTN_BG = (90, 90, 110)
-MOVES_TITLE_COLOR = (180, 180, 200)
+BG_COLOR = (28, 32, 38)
+TEAM_COLORS = {"Red": (200, 80, 80), "Blue": (80, 80, 200)}
+TEXT_COLOR = (230, 230, 240)
+SIDEBAR_BG = (45, 48, 55)
+SIDEBAR_BORDER = (70, 74, 90)
+BTN_BG = (90, 95, 110)
+MOVES_TITLE_COLOR = (190, 190, 210)
+MARKER_RADIUS = 8  # 25% larger than original 6
+MARKER_BORDER = 1
 
-# Font sizes (pygame "None" default font)
-FONT_SIZE_CELL = 72
-FONT_SIZE_SMALL = 28
-FONT_SIZE_BTN = 36
+SIDEBAR_PAD = 16
+BUTTON_HEIGHT = 44
+FONT_SIZE_SMALL = 26
+FONT_SIZE_BTN = 34
 FPS = 60
-
-# Layout details
 BORDER_RADIUS = 8
 SIDEBAR_TURN_GAP = 20
 SIDEBAR_SECTION_GAP = 6
 SIDEBAR_LINE_GAP = 2
 SIDEBAR_LINE_WIDTH = 2
 
-# Last combat result for UI: (attacker_team, attacker_roll, defender_roll, winner) or None
+# Last combat result for UI: (attacker_team, attacker_roll, defender_roll, winner, defending_territory_id) or None
 # winner is "attacker" | "defender" from resolve_combat
-_last_combat: tuple[str, int, int, str] | None = None
+_last_combat: tuple[str, int, int, str, TerritoryId] | None = None
 
 # Highlight color for valid attack cells on hover
 HOVER_HIGHLIGHT_COLOR = (255, 255, 200)
 HOVER_HIGHLIGHT_WIDTH = 4
 
 
-def cell_rect(row: int, col: int) -> pygame.Rect:
-    """Rect for a grid cell (left side only)."""
-    x = MARGIN + col * (CELL_SIZE + MARGIN)
-    y = MARGIN + row * (CELL_SIZE + MARGIN)
-    return pygame.Rect(x, y, CELL_SIZE, CELL_SIZE)
+def _map_rect() -> pygame.Rect:
+    return pygame.Rect(0, 0, MAP_WIDTH, MAP_HEIGHT)
 
 
-def sidebar_rect() -> pygame.Rect:
-    """Rect for the right-hand sidebar."""
-    return pygame.Rect(GRID_WIDTH + MARGIN, 0, SIDEBAR_WIDTH, HEIGHT)
+def bottom_bar_rect() -> pygame.Rect:
+    return pygame.Rect(0, MAP_HEIGHT, MAP_WIDTH, BOTTOM_BAR_HEIGHT)
+
+
+def right_sidebar_rect() -> pygame.Rect:
+    return pygame.Rect(MAP_WIDTH + GAP, 0, SIDEBAR_RIGHT_WIDTH, HEIGHT)
 
 
 def end_turn_button_rect(sidebar: pygame.Rect | None = None) -> pygame.Rect:
-    """Rect for the End turn button inside the sidebar."""
-    s = sidebar if sidebar is not None else sidebar_rect()
-    sx = s.x + SIDEBAR_PAD
-    sy = HEIGHT - MARGIN - BUTTON_HEIGHT
-    return pygame.Rect(sx, sy, SIDEBAR_WIDTH - 2 * SIDEBAR_PAD, BUTTON_HEIGHT)
+    s = sidebar if sidebar is not None else right_sidebar_rect()
+    return pygame.Rect(
+        s.x + SIDEBAR_PAD,
+        HEIGHT - MARGIN - BUTTON_HEIGHT,
+        SIDEBAR_RIGHT_WIDTH - 2 * SIDEBAR_PAD,
+        BUTTON_HEIGHT,
+    )
 
 
-def cell_at_point(pos: tuple[int, int]) -> tuple[int, int] | None:
-    """Return (row, col) of the cell containing pos, or None if outside grid."""
-    for row in range(GRID_ROWS):
-        for col in range(GRID_COLS):
-            if cell_rect(row, col).collidepoint(pos):
-                return (row, col)
-    return None
+def _load_map_surface() -> pygame.Surface | None:
+    """Load map image from src/img/map.jpg; scale to MAP_WIDTH x MAP_HEIGHT."""
+    base = os.path.dirname(os.path.abspath(__file__))
+    path = os.path.join(base, "img", "map.jpg")
+    if not os.path.isfile(path):
+        return None
+    img = pygame.image.load(path)
+    return pygame.transform.smoothscale(img, (MAP_WIDTH, MAP_HEIGHT))
 
 
-def _handle_events(sidebar: pygame.Rect) -> bool:
-    """Process pygame events. Return False to quit."""
+def _handle_events(sidebar: pygame.Rect, map_surf: pygame.Surface | None) -> bool:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             return False
@@ -103,37 +107,79 @@ def _handle_events(sidebar: pygame.Rect) -> bool:
             if end_turn_button_rect(sidebar).collidepoint(event.pos):
                 skip()
             else:
-                cell = cell_at_point(event.pos)
-                if cell is not None:
-                    row, col = cell
-                    tid = get_territory_at(row, col)
-                    if tid is not None and tid in valid_attack_targets():
-                        try:
-                            attack(tid)
-                        except ValueError as e:
-                            logging.warning("Invalid attack ignored: %s", e)
+                mx, my, mw, mh = _map_rect().x, _map_rect().y, _map_rect().w, _map_rect().h
+                tid = territory_at_point((mx, my, mw, mh), event.pos[0], event.pos[1], MARKER_RADIUS + 4)
+                if tid is not None and tid in valid_attack_targets():
+                    try:
+                        attack(tid)
+                    except ValueError as e:
+                        logging.warning("Invalid attack ignored: %s", e)
     return True
 
 
-def _draw_grid(
-    screen: pygame.Surface, font: pygame.font.Font, mouse_pos: tuple[int, int] | None = None
+def _draw_coord_tooltip(
+    screen: pygame.Surface,
+    map_rect: pygame.Rect,
+    mouse_pos: tuple[int, int],
+    font: pygame.font.Font,
 ) -> None:
-    """Draw the 2×2 territory grid on the left. Optionally highlight valid attack cell under mouse."""
+    """Draw a hover popup with x,y fractions (0–1) when cursor is over the map."""
+    if not map_rect.collidepoint(mouse_pos):
+        return
+    mx, my, mw, mh = map_rect.x, map_rect.y, map_rect.w, map_rect.h
+    px, py = mouse_pos[0], mouse_pos[1]
+    x_frac = (px - mx) / mw
+    y_frac = (py - my) / mh
+    x_frac = max(0.0, min(1.0, x_frac))
+    y_frac = max(0.0, min(1.0, y_frac))
+    text = f"x: {x_frac:.3f}  y: {y_frac:.3f}"
+    label = font.render(text, True, TEXT_COLOR)
+    pad = 8
+    tw, th = label.get_size()
+    box_w, box_h = tw + 2 * pad, th + 2 * pad
+    # Place popup above and left of cursor so it doesn't cover the point
+    popup_x = px - box_w - 12
+    popup_y = py - box_h - 12
+    if popup_x < map_rect.x:
+        popup_x = px + 12
+    if popup_y < map_rect.y:
+        popup_y = py + 12
+    popup_rect = pygame.Rect(popup_x, popup_y, box_w, box_h)
+    pygame.draw.rect(screen, SIDEBAR_BG, popup_rect, border_radius=BORDER_RADIUS)
+    pygame.draw.rect(screen, SIDEBAR_BORDER, popup_rect, 1, border_radius=BORDER_RADIUS)
+    screen.blit(label, (popup_rect.x + pad, popup_rect.y + pad))
+
+
+def _draw_map(
+    screen: pygame.Surface,
+    map_rect: pygame.Rect,
+    map_surf: pygame.Surface | None,
+    mouse_pos: tuple[int, int] | None = None,
+) -> None:
+    """Draw map image and territory markers; highlight valid attack target under mouse."""
+    if map_surf is not None:
+        screen.blit(map_surf, map_rect.topleft)
+    mx, my, mw, mh = map_rect.x, map_rect.y, map_rect.w, map_rect.h
     targets = set(valid_attack_targets())
-    for row in range(GRID_ROWS):
-        for col in range(GRID_COLS):
-            tid = get_territory_at(row, col)
-            if tid is None:
-                continue
-            r = cell_rect(row, col)
-            pygame.draw.rect(screen, TEAM_COLORS[owner(tid)], r, border_radius=BORDER_RADIUS)
-            if mouse_pos is not None and r.collidepoint(mouse_pos) and tid in targets:
-                pygame.draw.rect(
-                    screen, HOVER_HIGHLIGHT_COLOR, r, width=HOVER_HIGHLIGHT_WIDTH, border_radius=BORDER_RADIUS
-                )
-            text = font.render(tid, True, TEXT_COLOR)
-            tr = text.get_rect(center=r.center)
-            screen.blit(text, tr)
+    for tid in ALL_TERRITORY_IDS:
+        x_frac, y_frac = map_position(tid)
+        tx = int(mx + x_frac * mw)
+        ty = int(my + y_frac * mh)
+        pygame.draw.circle(screen, TEAM_COLORS[owner(tid)], (tx, ty), MARKER_RADIUS)
+        pygame.draw.circle(screen, SIDEBAR_BORDER, (tx, ty), MARKER_RADIUS, MARKER_BORDER)
+        is_hover = (
+            mouse_pos is not None
+            and (mouse_pos[0] - tx) ** 2 + (mouse_pos[1] - ty) ** 2 <= (MARKER_RADIUS + 4) ** 2
+            and tid in targets
+        )
+        if is_hover:
+            pygame.draw.circle(
+                screen,
+                HOVER_HIGHLIGHT_COLOR,
+                (tx, ty),
+                MARKER_RADIUS + HOVER_HIGHLIGHT_WIDTH,
+                width=HOVER_HIGHLIGHT_WIDTH,
+            )
 
 
 def _show_combat_popup(
@@ -142,6 +188,7 @@ def _show_combat_popup(
     att_roll: int,
     def_roll: int,
     combat_winner: str,
+    def_territory_id: TerritoryId,
     clock: pygame.time.Clock,
 ) -> None:
     """Show battle stats and outcome in a modal popup; wait for any key to close."""
@@ -149,37 +196,36 @@ def _show_combat_popup(
     attacker_wins = att_roll > def_roll
     outcome = f"{att_team} wins!" if attacker_wins else "Defender holds!"
     outcome_color = TEAM_COLORS[att_team] if attacker_wins else TEAM_COLORS[def_team]
+    def_name = display_name(def_territory_id)
 
     overlay = pygame.Surface((WIDTH, HEIGHT))
     overlay.set_alpha(200)
     overlay.fill((0, 0, 0))
     screen.blit(overlay, (0, 0))
 
-    popup_w, popup_h = 320, 170
+    popup_w, popup_h = 320, 190
     popup_x = (WIDTH - popup_w) // 2
     popup_y = (HEIGHT - popup_h) // 2
     popup_rect = pygame.Rect(popup_x, popup_y, popup_w, popup_h)
     pygame.draw.rect(screen, SIDEBAR_BG, popup_rect, border_radius=BORDER_RADIUS)
     pygame.draw.rect(screen, SIDEBAR_BORDER, popup_rect, 2, border_radius=BORDER_RADIUS)
-
     font = pygame.font.Font(None, 48)
     small_font = pygame.font.Font(None, 24)
     title = font.render("Combat", True, MOVES_TITLE_COLOR)
     screen.blit(title, title.get_rect(centerx=popup_rect.centerx, top=popup_y + 16))
     msg = font.render(f"{att_team} {att_roll}  vs  {def_team} {def_roll}", True, TEXT_COLOR)
-    screen.blit(msg, msg.get_rect(centerx=popup_rect.centerx, top=popup_y + 56))
+    screen.blit(msg, msg.get_rect(centerx=popup_rect.centerx, top=popup_y + 52))
+    defending_label = small_font.render(f"Defending: {def_name}", True, MOVES_TITLE_COLOR)
+    screen.blit(defending_label, defending_label.get_rect(centerx=popup_rect.centerx, top=popup_y + 88))
     outcome_surf = font.render(outcome, True, outcome_color)
-    screen.blit(outcome_surf, outcome_surf.get_rect(centerx=popup_rect.centerx, top=popup_y + 96))
+    screen.blit(outcome_surf, outcome_surf.get_rect(centerx=popup_rect.centerx, top=popup_y + 112))
     hint = pygame.font.Font(None, 24).render("Press any key to close", True, MOVES_TITLE_COLOR)
-    screen.blit(hint, hint.get_rect(centerx=popup_rect.centerx, top=popup_y + 130))
+    screen.blit(hint, hint.get_rect(centerx=popup_rect.centerx, top=popup_y + 152))
     pygame.display.flip()
-
     waiting = True
     while waiting:
         for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                waiting = False
-            if event.type == pygame.KEYDOWN:
+            if event.type in (pygame.QUIT, pygame.KEYDOWN):
                 waiting = False
         clock.tick(FPS)
 
@@ -187,19 +233,16 @@ def _show_combat_popup(
 def _show_winner_popup(
     screen: pygame.Surface, winning_team: str, clock: pygame.time.Clock
 ) -> None:
-    """Show a modal popup with the winning team; wait for click or key to close."""
     overlay = pygame.Surface((WIDTH, HEIGHT))
     overlay.set_alpha(200)
     overlay.fill((0, 0, 0))
     screen.blit(overlay, (0, 0))
-
     popup_w, popup_h = 320, 120
     popup_x = (WIDTH - popup_w) // 2
     popup_y = (HEIGHT - popup_h) // 2
     popup_rect = pygame.Rect(popup_x, popup_y, popup_w, popup_h)
     pygame.draw.rect(screen, SIDEBAR_BG, popup_rect, border_radius=BORDER_RADIUS)
     pygame.draw.rect(screen, SIDEBAR_BORDER, popup_rect, 2, border_radius=BORDER_RADIUS)
-
     font = pygame.font.Font(None, 48)
     title = font.render("Game Over", True, MOVES_TITLE_COLOR)
     screen.blit(title, title.get_rect(centerx=popup_rect.centerx, top=popup_y + 20))
@@ -208,34 +251,34 @@ def _show_winner_popup(
     hint = pygame.font.Font(None, 24).render("Click or press any key to close", True, MOVES_TITLE_COLOR)
     screen.blit(hint, hint.get_rect(centerx=popup_rect.centerx, top=popup_y + 90))
     pygame.display.flip()
-
     waiting = True
     while waiting:
         for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                waiting = False
-            if event.type in (pygame.MOUSEBUTTONDOWN, pygame.KEYDOWN):
+            if event.type in (pygame.QUIT, pygame.MOUSEBUTTONDOWN, pygame.KEYDOWN):
                 waiting = False
         clock.tick(FPS)
 
 
-def _draw_sidebar(
+def _draw_bottom_bar(screen: pygame.Surface, bar: pygame.Rect) -> None:
+    """Draw empty bottom bar under the map (reserved for future content)."""
+    pygame.draw.rect(screen, SIDEBAR_BG, bar)
+    pygame.draw.line(screen, SIDEBAR_BORDER, (0, bar.top), (bar.width, bar.top), SIDEBAR_LINE_WIDTH)
+
+
+def _draw_right_sidebar(
     screen: pygame.Surface,
     sidebar: pygame.Rect,
     small_font: pygame.font.Font,
     btn_font: pygame.font.Font,
 ) -> None:
-    """Draw turn info, possible moves, and End turn button."""
     pygame.draw.rect(screen, SIDEBAR_BG, sidebar)
     pygame.draw.line(screen, SIDEBAR_BORDER, (sidebar.left, 0), (sidebar.left, HEIGHT), SIDEBAR_LINE_WIDTH)
     y = MARGIN
-
     turn_label = f"{current_team()}'s turn"
     turn_surf = btn_font.render(turn_label, True, TEAM_COLORS[current_team()])
     turn_rect = turn_surf.get_rect(x=sidebar.x + SIDEBAR_PAD, y=y)
     screen.blit(turn_surf, turn_rect)
     y = turn_rect.bottom + SIDEBAR_TURN_GAP
-
     targets = valid_attack_targets()
     skip_ok = can_skip()
     moves_title = small_font.render("Possible moves", True, MOVES_TITLE_COLOR)
@@ -246,7 +289,6 @@ def _draw_sidebar(
     y += attack_txt.get_height() + SIDEBAR_LINE_GAP
     skip_txt = small_font.render(f"Skip: {'yes' if skip_ok else 'no'}", True, TEXT_COLOR)
     screen.blit(skip_txt, (sidebar.x + SIDEBAR_PAD, y))
-
     btn = end_turn_button_rect(sidebar)
     pygame.draw.rect(screen, BTN_BG, btn, border_radius=BORDER_RADIUS)
     btn_text = btn_font.render("End turn", True, TEXT_COLOR)
@@ -258,7 +300,7 @@ def main() -> None:
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption(TITLE)
-    font = pygame.font.Font(None, FONT_SIZE_CELL)
+    map_surf = _load_map_surface()
     small_font = pygame.font.Font(None, FONT_SIZE_SMALL)
     btn_font = pygame.font.Font(None, FONT_SIZE_BTN)
 
@@ -268,27 +310,28 @@ def main() -> None:
         def_team = owner(target_id)
         att_roll, def_roll = roll_combat(att, def_team, target_id)
         combat_winner = resolve_combat(att_roll, def_roll)
-        _last_combat = (att, att_roll, def_roll, combat_winner)
+        _last_combat = (att, att_roll, def_roll, combat_winner, target_id)
         if combat_winner == "attacker":
             set_owner(target_id, att)
 
     set_combat_hook(on_combat)
-
     clock = pygame.time.Clock()
     running = True
     while running:
-        sidebar = sidebar_rect()
-        running = _handle_events(sidebar)
+        running = _handle_events(right_sidebar_rect(), map_surf)
         if not running:
             break
-
         screen.fill(BG_COLOR)
-        _draw_grid(screen, font, pygame.mouse.get_pos())
-        _draw_sidebar(screen, sidebar, small_font, btn_font)
+        sidebar = right_sidebar_rect()
+        mouse_pos = pygame.mouse.get_pos()
+        _draw_map(screen, _map_rect(), map_surf, mouse_pos)
+        _draw_coord_tooltip(screen, _map_rect(), mouse_pos, small_font)
+        _draw_bottom_bar(screen, bottom_bar_rect())
+        _draw_right_sidebar(screen, sidebar, small_font, btn_font)
         pygame.display.flip()
         if _last_combat is not None:
-            att_team, att_roll, def_roll, combat_winner = _last_combat
-            _show_combat_popup(screen, att_team, att_roll, def_roll, combat_winner, clock)
+            att_team, att_roll, def_roll, combat_winner, def_tid = _last_combat
+            _show_combat_popup(screen, att_team, att_roll, def_roll, combat_winner, def_tid, clock)
             _last_combat = None
             continue
         if is_game_over():
@@ -297,7 +340,6 @@ def main() -> None:
                 _show_winner_popup(screen, w, clock)
             break
         clock.tick(FPS)
-
     pygame.quit()
 
 

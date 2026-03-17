@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "agent-3"
 version = "0.1.0"
-description = "Territory grid (2×2) — Python + Pygame"
+description = "Pacific map (30 territories) — Python + Pygame"
 authors = ["agent-3"]
 readme = "README.md"
 packages = [{ include = "src" }]

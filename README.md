@@ -1,6 +1,6 @@
 # agent-3
 
-Territory grid (2×2) — Python + Pygame.
+Pacific map (30 territories) — Python + Pygame. Uses `src/img/map.jpg` as background; territories are clickable markers.
 
 ## Setup
 
@@ -23,21 +23,20 @@ Closes on window close or Escape.
 poetry run pytest tests/ -v
 ```
 
-## Docker / Make
+## Make
 
 ```bash
-make docker-build    # build image
-make docker-test     # run tests in container
-make docker-run      # run game in container (headless)
-make docker-shell   # shell in container
+make install   # install deps (via poetry)
+make test      # run tests
+make run       # run the game
+make shell     # bash in poetry env
+make clean     # remove build artifacts
 ```
 
 ## API (territory module)
 
-- `ALL_TERRITORY_IDS` — tuple `("A", "B", "C", "D")`
-- `GRID_ROWS`, `GRID_COLS` — both `2`
-- `get_territory_at(row, col)` — territory ID at position, or `None` if out of bounds
-- `get_position_of(tid)` — `(row, col)` for a territory ID, or `None`
-- `neighbors(tid)` — list of adjacent territory IDs (orthogonal only; each territory has exactly two neighbors)
-
-Territories: A = top-left, B = top-right, C = bottom-left, D = bottom-right.
+- `ALL_TERRITORY_IDS` — tuple of 30 territory IDs
+- `map_position(tid)` — `(x_frac, y_frac)` position on the map (0–1)
+- `territory_at_point(map_rect, px, py, radius_px)` — territory whose marker contains the point, or `None`
+- `neighbors(tid)` — list of adjacent territory IDs (adjacency data as defined in territory data)
+- `owner(tid)`, `set_owner(tid, team)` — ownership; `region(tid)`, `display_name(tid)` — metadata
