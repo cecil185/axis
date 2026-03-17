@@ -1,5 +1,26 @@
 # Agent Instructions
 
+## Parallel Team Mode
+
+When multiple agents work in parallel on this codebase:
+
+- **Single branch**: All agents work on the same branch — never create sub-branches
+- **Atomic claiming**: Use `bd update <id> --claim --json` before starting; skip if claim fails
+- **1 commit per issue** (ideally): Commit message format: `<issue-id>: <summary>`
+- **Merge conflicts**: Resolve yourself — pull, rebase, fix conflicts, push:
+  ```bash
+  git pull --rebase
+  # fix any conflicts manually
+  git add -f <conflicted-files>
+  git rebase --continue
+  git push
+  ```
+- **After finishing an issue**: Run `bd ready --json` and claim the next available issue
+- **Do NOT close issues** — user reviews and closes after PR
+- **PR trigger**: After 6 issues are committed, the orchestrating agent opens a PR
+
+---
+
 This project uses **bd** (beads) for issue tracking. Run `bd onboard` to get started.
 
 ## Quick Reference
