@@ -159,6 +159,7 @@ def neighbors(tid: TerritoryId) -> list[TerritoryId]:
 
 
 # Initial ownership: Red first 15, Blue last 14.
+# Used as fallback when unit stacks are empty (e.g. before init_game).
 _owners: dict[TerritoryId, Team] = {
     tid: ("Red" if i < 15 else "Blue")
     for i, tid in enumerate(ALL_TERRITORY_IDS)
@@ -166,12 +167,32 @@ _owners: dict[TerritoryId, Team] = {
 
 
 def owner(tid: TerritoryId) -> Team:
-    """Return the team that owns the territory."""
+    """
+    Return the team that owns the territory.
+    Derives from unit stacks when available (owner_from_units); falls back
+    to _owners when both teams have no units.
+    """
+    # Lazy import to avoid circular dependency at module load time
+    from .units import owner_from_units  # noqa: PLC0415
+    unit_owner = owner_from_units(tid)
+    if unit_owner is not None:
+        return unit_owner
     return _owners[tid]
 
 
 def set_owner(tid: TerritoryId, team: Team) -> None:
-    """Set the owner of the territory."""
+    """
+    Set the owner of the territory by transferring all units to the new team.
+    Clears losing team's units and gives winning team the standard stack if empty.
+    """
+    from .units import set_units, total_units  # noqa: PLC0415
+    enemy: Team = "Blue" if team == "Red" else "Red"
+    # Clear enemy units in the territory (attacker wins)
+    set_units(tid, enemy, {"infantry": 0, "tanks": 0})
+    # Ensure the winning team has at least some units (1 infantry minimum)
+    if total_units(tid, team) == 0:
+        set_units(tid, team, {"infantry": 1, "tanks": 0})
+    # Also update the fallback dict
     _owners[tid] = team
 
 

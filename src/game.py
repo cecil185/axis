@@ -4,6 +4,7 @@ Uses src/img/map.jpg as background; territories are clickable markers.
 """
 
 import logging
+import math
 import os
 
 import pygame
@@ -23,7 +24,8 @@ from .territory import (
 from .state import current_team
 from .valid_actions import can_skip, valid_attack_targets
 from .actions import attack, set_combat_hook, skip
-from .combat import roll_combat, resolve_combat
+from .combat import roll_combat, resolve_combat, resolve_combat_with_units
+from .units import units as territory_units
 
 # Layout: map on top, bottom bar underneath (left area) | right sidebar
 MARGIN = 16
@@ -58,16 +60,22 @@ SIDEBAR_SECTION_GAP = 6
 SIDEBAR_LINE_GAP = 2
 SIDEBAR_LINE_WIDTH = 2
 
-# Last combat result for UI: (attacker_team, attacker_roll, defender_roll, winner, defending_territory_id) or None
+# Last combat result for UI:
+# (attacker_team, attacker_roll, defender_roll, winner, defending_territory_id, attacking_territory_id | None)
 # winner is "attacker" | "defender" from resolve_combat
-_last_combat: tuple[str, int, int, str, TerritoryId] | None = None
+_last_combat: tuple[str, int, int, str, TerritoryId, TerritoryId | None] | None = None
 
 # Currently selected territory to attack FROM (green outline); None if none selected
 _selected_territory: TerritoryId | None = None
 
-# Highlight color for valid attack cells on hover
+# Highlight color for valid attack cells on hover / pulse
 HOVER_HIGHLIGHT_COLOR = (255, 255, 200)
 HOVER_HIGHLIGHT_WIDTH = 4
+
+# Pulse settings for valid attack target outlines (~1s cycle, smooth sine wave)
+PULSE_PERIOD_MS = 1000  # milliseconds per full cycle
+PULSE_ALPHA_MIN = 80    # minimum alpha (dim end of pulse)
+PULSE_ALPHA_MAX = 255   # maximum alpha (bright end of pulse)
 
 
 def _map_rect() -> pygame.Rect:
@@ -110,6 +118,9 @@ def _handle_events(sidebar: pygame.Rect, map_surf: pygame.Surface | None, map_re
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
             return False
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if is_game_over():
+                # No actions allowed once the game has ended
+                continue
             if end_turn_button_rect(sidebar).collidepoint(event.pos):
                 skip()
                 _selected_territory = None
@@ -153,17 +164,25 @@ def _draw_coord_tooltip(
     px, py = mouse_pos[0], mouse_pos[1]
     tid = territory_at_point((mx, my, mw, mh), px, py, MARKER_RADIUS + 4)
     if tid is not None:
-        text = f"{display_name(tid)} ({region(tid)})"
+        red_stack = territory_units(tid, "Red")
+        blue_stack = territory_units(tid, "Blue")
+        red_inf, red_tnk = red_stack.get("infantry", 0), red_stack.get("tanks", 0)
+        blue_inf, blue_tnk = blue_stack.get("infantry", 0), blue_stack.get("tanks", 0)
+        lines = [
+            f"{display_name(tid)} ({region(tid)})",
+            f"Red: {red_inf}inf {red_tnk}tnk  Blue: {blue_inf}inf {blue_tnk}tnk",
+        ]
     else:
         x_frac = (px - mx) / mw
         y_frac = (py - my) / mh
         x_frac = max(0.0, min(1.0, x_frac))
         y_frac = max(0.0, min(1.0, y_frac))
-        text = f"x: {x_frac:.3f}  y: {y_frac:.3f}"
-    label = font.render(text, True, TEXT_COLOR)
+        lines = [f"x: {x_frac:.3f}  y: {y_frac:.3f}"]
+    labels = [font.render(line, True, TEXT_COLOR) for line in lines]
     pad = 8
-    tw, th = label.get_size()
-    box_w, box_h = tw + 2 * pad, th + 2 * pad
+    line_gap = 4
+    box_w = max(lbl.get_width() for lbl in labels) + 2 * pad
+    box_h = sum(lbl.get_height() for lbl in labels) + 2 * pad + line_gap * (len(labels) - 1)
     # Place popup above and left of cursor so it doesn't cover the point
     popup_x = px - box_w - 12
     popup_y = py - box_h - 12
@@ -174,7 +193,10 @@ def _draw_coord_tooltip(
     popup_rect = pygame.Rect(popup_x, popup_y, box_w, box_h)
     pygame.draw.rect(screen, SIDEBAR_BG, popup_rect, border_radius=BORDER_RADIUS)
     pygame.draw.rect(screen, SIDEBAR_BORDER, popup_rect, 1, border_radius=BORDER_RADIUS)
-    screen.blit(label, (popup_rect.x + pad, popup_rect.y + pad))
+    y_off = popup_rect.y + pad
+    for lbl in labels:
+        screen.blit(lbl, (popup_rect.x + pad, y_off))
+        y_off += lbl.get_height() + line_gap
 
 
 def _draw_map(
@@ -183,8 +205,9 @@ def _draw_map(
     map_surf: pygame.Surface | None,
     mouse_pos: tuple[int, int] | None = None,
     selected: TerritoryId | None = None,
+    pulse_alpha: int = 255,
 ) -> None:
-    """Draw map image and territory markers; highlight valid attack target under mouse."""
+    """Draw map image and territory markers; pulse yellow outlines on valid attack targets."""
     if map_surf is not None:
         screen.blit(map_surf, map_rect.topleft)
     mx, my, mw, mh = map_rect.x, map_rect.y, map_rect.w, map_rect.h
@@ -209,20 +232,26 @@ def _draw_map(
                 MARKER_RADIUS + 5,
                 width=3,
             )
-        # Yellow outline on hover over a valid target
-        is_hover = (
-            mouse_pos is not None
-            and (mouse_pos[0] - tx) ** 2 + (mouse_pos[1] - ty) ** 2 <= (MARKER_RADIUS + 4) ** 2
-            and tid in selected_targets
-        )
-        if is_hover:
-            pygame.draw.circle(
-                screen,
-                HOVER_HIGHLIGHT_COLOR,
-                (tx, ty),
-                MARKER_RADIUS + HOVER_HIGHLIGHT_WIDTH,
-                width=HOVER_HIGHLIGHT_WIDTH,
+        # Pulsing yellow outline on valid attack targets; brighter on hover
+        if tid in selected_targets:
+            is_hover = (
+                mouse_pos is not None
+                and (mouse_pos[0] - tx) ** 2 + (mouse_pos[1] - ty) ** 2 <= (MARKER_RADIUS + 4) ** 2
             )
+            alpha = 255 if is_hover else pulse_alpha
+            r, g, b = HOVER_HIGHLIGHT_COLOR
+            pulse_surf = pygame.Surface(
+                (2 * (MARKER_RADIUS + HOVER_HIGHLIGHT_WIDTH + 1),) * 2, pygame.SRCALPHA
+            )
+            center = MARKER_RADIUS + HOVER_HIGHLIGHT_WIDTH + 1
+            pygame.draw.circle(
+                pulse_surf,
+                (r, g, b, alpha),
+                (center, center),
+                MARKER_RADIUS + HOVER_HIGHLIGHT_WIDTH,
+                HOVER_HIGHLIGHT_WIDTH,
+            )
+            screen.blit(pulse_surf, (tx - center, ty - center))
 
 
 def _show_combat_popup(
@@ -233,20 +262,27 @@ def _show_combat_popup(
     combat_winner: str,
     def_territory_id: TerritoryId,
     clock: pygame.time.Clock,
+    att_territory_id: TerritoryId | None = None,
 ) -> None:
     """Show battle stats and outcome in a modal popup; wait for any key to close."""
-    def_team = "Blue" if att_team == "Red" else "Red"
+    from .combat import _effective_attack_bonus, _effective_defense_bonus  # noqa: PLC0415
+    def_team: str = "Blue" if att_team == "Red" else "Red"
     attacker_wins = combat_winner == "attacker"
     outcome = f"{att_team} wins!" if attacker_wins else "Defender holds!"
     outcome_color = TEAM_COLORS[att_team] if attacker_wins else TEAM_COLORS[def_team]
     def_name = display_name(def_territory_id)
+
+    # Compute unit stat bonuses for display
+    att_bonus = _effective_attack_bonus(att_team, att_territory_id) if att_territory_id else 0  # type: ignore[arg-type]
+    def_bonus = _effective_defense_bonus(def_team, def_territory_id)  # type: ignore[arg-type]
+    bonus_text = f"Att +{att_bonus}  Def +{def_bonus}" if (att_bonus or def_bonus) else ""
 
     overlay = pygame.Surface((WIDTH, HEIGHT))
     overlay.set_alpha(200)
     overlay.fill((0, 0, 0))
     screen.blit(overlay, (0, 0))
 
-    popup_w, popup_h = 320, 190
+    popup_w, popup_h = 320, 210
     popup_x = (WIDTH - popup_w) // 2
     popup_y = (HEIGHT - popup_h) // 2
     popup_rect = pygame.Rect(popup_x, popup_y, popup_w, popup_h)
@@ -255,15 +291,18 @@ def _show_combat_popup(
     font = pygame.font.Font(None, 48)
     small_font = pygame.font.Font(None, 24)
     title = font.render("Combat", True, MOVES_TITLE_COLOR)
-    screen.blit(title, title.get_rect(centerx=popup_rect.centerx, top=popup_y + 16))
+    screen.blit(title, title.get_rect(centerx=popup_rect.centerx, top=popup_y + 14))
     msg = font.render(f"{att_team} {att_roll}  vs  {def_team} {def_roll}", True, TEXT_COLOR)
-    screen.blit(msg, msg.get_rect(centerx=popup_rect.centerx, top=popup_y + 52))
+    screen.blit(msg, msg.get_rect(centerx=popup_rect.centerx, top=popup_y + 50))
+    if bonus_text:
+        bonus_surf = small_font.render(bonus_text, True, MOVES_TITLE_COLOR)
+        screen.blit(bonus_surf, bonus_surf.get_rect(centerx=popup_rect.centerx, top=popup_y + 86))
     defending_label = small_font.render(f"Defending: {def_name}", True, MOVES_TITLE_COLOR)
-    screen.blit(defending_label, defending_label.get_rect(centerx=popup_rect.centerx, top=popup_y + 88))
+    screen.blit(defending_label, defending_label.get_rect(centerx=popup_rect.centerx, top=popup_y + 104))
     outcome_surf = font.render(outcome, True, outcome_color)
-    screen.blit(outcome_surf, outcome_surf.get_rect(centerx=popup_rect.centerx, top=popup_y + 112))
+    screen.blit(outcome_surf, outcome_surf.get_rect(centerx=popup_rect.centerx, top=popup_y + 128))
     hint = pygame.font.Font(None, 24).render("Press any key to close", True, MOVES_TITLE_COLOR)
-    screen.blit(hint, hint.get_rect(centerx=popup_rect.centerx, top=popup_y + 152))
+    screen.blit(hint, hint.get_rect(centerx=popup_rect.centerx, top=popup_y + 172))
     pygame.display.flip()
     waiting = True
     while waiting:
@@ -362,10 +401,14 @@ def main() -> None:
     def on_combat(target_id: TerritoryId) -> None:
         global _last_combat
         att = current_team()
-        def_team = owner(target_id)
         att_roll, def_roll = roll_combat()
-        combat_winner = resolve_combat(att_roll, def_roll)
-        _last_combat = (att, att_roll, def_roll, combat_winner, target_id)
+        att_tid = _selected_territory
+        # Apply unit stats if an attacking territory is selected
+        if att_tid is not None:
+            combat_winner = resolve_combat_with_units(att_roll, def_roll, att, att_tid, target_id)
+        else:
+            combat_winner = resolve_combat(att_roll, def_roll)
+        _last_combat = (att, att_roll, def_roll, combat_winner, target_id, att_tid)
         if combat_winner == "attacker":
             set_owner(target_id, att)
 
@@ -384,14 +427,19 @@ def main() -> None:
         screen.fill(BG_COLOR)
         sidebar = right_sidebar_rect()
         mouse_pos = pygame.mouse.get_pos()
-        _draw_map(screen, map_rect, map_surf, mouse_pos, _selected_territory)
+        # Compute smooth pulsing alpha for valid target outlines (~1s sine cycle)
+        t_ms = pygame.time.get_ticks()
+        phase = (t_ms % PULSE_PERIOD_MS) / PULSE_PERIOD_MS  # 0.0 to 1.0
+        sine_val = (1.0 + math.sin(2 * math.pi * phase - math.pi / 2)) / 2  # 0.0 to 1.0
+        pulse_alpha = int(PULSE_ALPHA_MIN + (PULSE_ALPHA_MAX - PULSE_ALPHA_MIN) * sine_val)
+        _draw_map(screen, map_rect, map_surf, mouse_pos, _selected_territory, pulse_alpha)
         _draw_coord_tooltip(screen, map_rect, mouse_pos, small_font)
         _draw_bottom_bar(screen, bottom_bar_rect(), small_font)
         _draw_right_sidebar(screen, sidebar, small_font, btn_font)
         pygame.display.flip()
         if _last_combat is not None:
-            att_team, att_roll, def_roll, combat_winner, def_tid = _last_combat
-            _show_combat_popup(screen, att_team, att_roll, def_roll, combat_winner, def_tid, clock)
+            att_team, att_roll, def_roll, combat_winner, def_tid, att_tid = _last_combat
+            _show_combat_popup(screen, att_team, att_roll, def_roll, combat_winner, def_tid, clock, att_tid)
             _last_combat = None
             continue
         if is_game_over():
