@@ -4,6 +4,7 @@ Uses src/img/map.jpg as background; territories are clickable markers.
 """
 
 import logging
+import math
 import os
 
 import pygame
@@ -65,9 +66,14 @@ _last_combat: tuple[str, int, int, str, TerritoryId] | None = None
 # Currently selected territory to attack FROM (green outline); None if none selected
 _selected_territory: TerritoryId | None = None
 
-# Highlight color for valid attack cells on hover
+# Highlight color for valid attack cells on hover / pulse
 HOVER_HIGHLIGHT_COLOR = (255, 255, 200)
 HOVER_HIGHLIGHT_WIDTH = 4
+
+# Pulse settings for valid attack target outlines (~1s cycle, smooth sine wave)
+PULSE_PERIOD_MS = 1000  # milliseconds per full cycle
+PULSE_ALPHA_MIN = 80    # minimum alpha (dim end of pulse)
+PULSE_ALPHA_MAX = 255   # maximum alpha (bright end of pulse)
 
 
 def _map_rect() -> pygame.Rect:
@@ -183,8 +189,9 @@ def _draw_map(
     map_surf: pygame.Surface | None,
     mouse_pos: tuple[int, int] | None = None,
     selected: TerritoryId | None = None,
+    pulse_alpha: int = 255,
 ) -> None:
-    """Draw map image and territory markers; highlight valid attack target under mouse."""
+    """Draw map image and territory markers; pulse yellow outlines on valid attack targets."""
     if map_surf is not None:
         screen.blit(map_surf, map_rect.topleft)
     mx, my, mw, mh = map_rect.x, map_rect.y, map_rect.w, map_rect.h
@@ -209,20 +216,26 @@ def _draw_map(
                 MARKER_RADIUS + 5,
                 width=3,
             )
-        # Yellow outline on hover over a valid target
-        is_hover = (
-            mouse_pos is not None
-            and (mouse_pos[0] - tx) ** 2 + (mouse_pos[1] - ty) ** 2 <= (MARKER_RADIUS + 4) ** 2
-            and tid in selected_targets
-        )
-        if is_hover:
-            pygame.draw.circle(
-                screen,
-                HOVER_HIGHLIGHT_COLOR,
-                (tx, ty),
-                MARKER_RADIUS + HOVER_HIGHLIGHT_WIDTH,
-                width=HOVER_HIGHLIGHT_WIDTH,
+        # Pulsing yellow outline on valid attack targets; brighter on hover
+        if tid in selected_targets:
+            is_hover = (
+                mouse_pos is not None
+                and (mouse_pos[0] - tx) ** 2 + (mouse_pos[1] - ty) ** 2 <= (MARKER_RADIUS + 4) ** 2
             )
+            alpha = 255 if is_hover else pulse_alpha
+            r, g, b = HOVER_HIGHLIGHT_COLOR
+            pulse_surf = pygame.Surface(
+                (2 * (MARKER_RADIUS + HOVER_HIGHLIGHT_WIDTH + 1),) * 2, pygame.SRCALPHA
+            )
+            center = MARKER_RADIUS + HOVER_HIGHLIGHT_WIDTH + 1
+            pygame.draw.circle(
+                pulse_surf,
+                (r, g, b, alpha),
+                (center, center),
+                MARKER_RADIUS + HOVER_HIGHLIGHT_WIDTH,
+                HOVER_HIGHLIGHT_WIDTH,
+            )
+            screen.blit(pulse_surf, (tx - center, ty - center))
 
 
 def _show_combat_popup(
@@ -384,7 +397,12 @@ def main() -> None:
         screen.fill(BG_COLOR)
         sidebar = right_sidebar_rect()
         mouse_pos = pygame.mouse.get_pos()
-        _draw_map(screen, map_rect, map_surf, mouse_pos, _selected_territory)
+        # Compute smooth pulsing alpha for valid target outlines (~1s sine cycle)
+        t_ms = pygame.time.get_ticks()
+        phase = (t_ms % PULSE_PERIOD_MS) / PULSE_PERIOD_MS  # 0.0 to 1.0
+        sine_val = (1.0 + math.sin(2 * math.pi * phase - math.pi / 2)) / 2  # 0.0 to 1.0
+        pulse_alpha = int(PULSE_ALPHA_MIN + (PULSE_ALPHA_MAX - PULSE_ALPHA_MIN) * sine_val)
+        _draw_map(screen, map_rect, map_surf, mouse_pos, _selected_territory, pulse_alpha)
         _draw_coord_tooltip(screen, map_rect, mouse_pos, small_font)
         _draw_bottom_bar(screen, bottom_bar_rect(), small_font)
         _draw_right_sidebar(screen, sidebar, small_font, btn_font)
