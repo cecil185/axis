@@ -116,6 +116,9 @@ def _handle_events(sidebar: pygame.Rect, map_surf: pygame.Surface | None, map_re
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
             return False
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if is_game_over():
+                # No actions allowed once the game has ended
+                continue
             if end_turn_button_rect(sidebar).collidepoint(event.pos):
                 skip()
                 _selected_territory = None
