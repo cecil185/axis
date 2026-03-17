@@ -259,10 +259,22 @@ def _show_winner_popup(
         clock.tick(FPS)
 
 
-def _draw_bottom_bar(screen: pygame.Surface, bar: pygame.Rect) -> None:
-    """Draw empty bottom bar under the map (reserved for future content)."""
+def _draw_bottom_bar(screen: pygame.Surface, bar: pygame.Rect, small_font: pygame.font.Font) -> None:
+    """Draw bottom bar under the map with a team legend showing territory counts."""
     pygame.draw.rect(screen, SIDEBAR_BG, bar)
     pygame.draw.line(screen, SIDEBAR_BORDER, (0, bar.top), (bar.width, bar.top), SIDEBAR_LINE_WIDTH)
+
+    dot_radius = 10
+    x = bar.x + MARGIN
+    cy = bar.centery
+
+    for team in ("Red", "Blue"):
+        count = sum(1 for tid in ALL_TERRITORY_IDS if owner(tid) == team)
+        color = TEAM_COLORS[team]
+        pygame.draw.circle(screen, color, (x + dot_radius, cy), dot_radius)
+        label = small_font.render(f"{team}: {count}", True, TEXT_COLOR)
+        screen.blit(label, (x + dot_radius * 2 + GAP, cy - label.get_height() // 2))
+        x += dot_radius * 2 + GAP + label.get_width() + MARGIN
 
 
 def _draw_right_sidebar(
@@ -326,7 +338,7 @@ def main() -> None:
         mouse_pos = pygame.mouse.get_pos()
         _draw_map(screen, _map_rect(), map_surf, mouse_pos)
         _draw_coord_tooltip(screen, _map_rect(), mouse_pos, small_font)
-        _draw_bottom_bar(screen, bottom_bar_rect())
+        _draw_bottom_bar(screen, bottom_bar_rect(), small_font)
         _draw_right_sidebar(screen, sidebar, small_font, btn_font)
         pygame.display.flip()
         if _last_combat is not None:
