@@ -17,3 +17,8 @@ htmlcov/
 .crush/*
 .cursor/*
 
+
+# bv (beads viewer) local config and caches
+.bv/
+.beads/beads.jsonl
+.beads/.bv.lock
