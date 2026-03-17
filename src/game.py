@@ -13,6 +13,7 @@ from .territory import (
     is_game_over,
     map_position,
     owner,
+    region,
     set_owner,
     territory_at_point,
     TerritoryId,
@@ -124,16 +125,20 @@ def _draw_coord_tooltip(
     mouse_pos: tuple[int, int],
     font: pygame.font.Font,
 ) -> None:
-    """Draw a hover popup with x,y fractions (0–1) when cursor is over the map."""
+    """Draw a hover popup: territory name+region when over a marker, else x,y fractions."""
     if not map_rect.collidepoint(mouse_pos):
         return
     mx, my, mw, mh = map_rect.x, map_rect.y, map_rect.w, map_rect.h
     px, py = mouse_pos[0], mouse_pos[1]
-    x_frac = (px - mx) / mw
-    y_frac = (py - my) / mh
-    x_frac = max(0.0, min(1.0, x_frac))
-    y_frac = max(0.0, min(1.0, y_frac))
-    text = f"x: {x_frac:.3f}  y: {y_frac:.3f}"
+    tid = territory_at_point((mx, my, mw, mh), px, py, MARKER_RADIUS + 4)
+    if tid is not None:
+        text = f"{display_name(tid)} ({region(tid)})"
+    else:
+        x_frac = (px - mx) / mw
+        y_frac = (py - my) / mh
+        x_frac = max(0.0, min(1.0, x_frac))
+        y_frac = max(0.0, min(1.0, y_frac))
+        text = f"x: {x_frac:.3f}  y: {y_frac:.3f}"
     label = font.render(text, True, TEXT_COLOR)
     pad = 8
     tw, th = label.get_size()
