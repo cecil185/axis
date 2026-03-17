@@ -3,7 +3,7 @@ Pacific map: 29 territory IDs and metadata (region, display_name, map position).
 Single source of truth; adjacency by maritime/geographic proximity.
 """
 
-from typing import Literal, TypedDict
+from typing import Literal, TypedDict, get_args
 
 TerritoryId = Literal[
     "japan",
@@ -38,37 +38,7 @@ TerritoryId = Literal[
 ]
 Team = Literal["Red", "Blue"]
 
-ALL_TERRITORY_IDS: tuple[TerritoryId, ...] = (
-    "japan",
-    "indonesia",
-    "philippines",
-    "hawaii",
-    "midway",
-    "johnston",
-    "australia_west",
-    "marianas",
-    "minamitori",
-    "micronesia",
-    "belau",
-    "marshall",
-    "nauru",
-    "kiribati",
-    "tuvalu",
-    "solomon",
-    "papua_new_guinea",
-    "vanuatu",
-    "fiji",
-    "australia_east",
-    "tokelau",
-    "cook_islands",
-    "tonga",
-    "new_caledonia",
-    "new_zealand",
-    "french_polynesia",
-    "clipperton",
-    "pitcairn",
-    "rapa_nui",
-)
+ALL_TERRITORY_IDS: tuple[TerritoryId, ...] = get_args(TerritoryId)
 
 
 class TerritoryInfo(TypedDict):
@@ -89,7 +59,7 @@ _METADATA: dict[TerritoryId, TerritoryInfo] = {
     "hawaii": {"region": "North Pacific", "display_name": "Hawaii", "x_frac": 0.56, "y_frac": 0.31},
     "midway": {"region": "North Pacific", "display_name": "Midway", "x_frac": 0.4, "y_frac": 0.27},
     "johnston": {"region": "North Pacific", "display_name": "Johnston", "x_frac": 0.47, "y_frac": 0.36},
-    "australia_west": {"region": "North Pacific", "display_name": "australia_west", "x_frac": 0.12, "y_frac": 0.63},
+    "australia_west": {"region": "South Pacific", "display_name": "Australia West", "x_frac": 0.12, "y_frac": 0.63},
     "marianas": {"region": "North Pacific", "display_name": "Marianas", "x_frac": 0.21, "y_frac": 0.31},
     "minamitori": {"region": "North Pacific", "display_name": "Minamitori", "x_frac": 0.27, "y_frac": 0.27},
     "micronesia": {"region": "Central Pacific", "display_name": "Micronesia", "x_frac": 0.285, "y_frac": 0.415},
@@ -102,12 +72,12 @@ _METADATA: dict[TerritoryId, TerritoryInfo] = {
     "papua_new_guinea": {"region": "South Pacific", "display_name": "Papua New Guinea", "x_frac": 0.24, "y_frac": 0.48},
     "vanuatu": {"region": "South Pacific", "display_name": "Vanuatu", "x_frac": 0.36, "y_frac": 0.58},
     "fiji": {"region": "South Pacific", "display_name": "Fiji", "x_frac": 0.40, "y_frac": 0.582},
-    "australia_east": {"region": "South Pacific", "display_name": "australia_east", "x_frac": 0.24, "y_frac": 0.63},
-    "tokelau": {"region": "South Pacific", "display_name": "Tokelau", "x_frac": 0.53, "y_frac": 0.585},
+    "australia_east": {"region": "South Pacific", "display_name": "Australia East", "x_frac": 0.24, "y_frac": 0.63},
+    "tokelau": {"region": "South Pacific", "display_name": "Tokelau", "x_frac": 0.50, "y_frac": 0.555},
     "cook_islands": {"region": "South Pacific", "display_name": "Cook Islands", "x_frac": 0.53, "y_frac": 0.585},
     "tonga": {"region": "South Pacific", "display_name": "Tonga", "x_frac": 0.44, "y_frac": 0.58},
     "new_caledonia": {"region": "South Pacific", "display_name": "New Caledonia", "x_frac": 0.33, "y_frac": 0.61},
-    "new_zealand": {"region": "South Pacific", "display_name": "new_zealand", "x_frac": 0.40, "y_frac": 0.76},
+    "new_zealand": {"region": "South Pacific", "display_name": "New Zealand", "x_frac": 0.40, "y_frac": 0.76},
     "french_polynesia": {"region": "South Pacific", "display_name": "French Polynesia", "x_frac": 0.64, "y_frac": 0.58},
     "clipperton": {"region": "Eastern Pacific", "display_name": "Clipperton", "x_frac": 0.82, "y_frac": 0.42},
     "pitcairn": {"region": "Eastern Pacific", "display_name": "Pitcairn", "x_frac": 0.74, "y_frac": 0.64},
@@ -189,9 +159,10 @@ def neighbors(tid: TerritoryId) -> list[TerritoryId]:
 
 
 # Initial ownership: Red first 15, Blue last 14.
-_owners: dict[TerritoryId, Team] = {}
-for i, tid in enumerate(ALL_TERRITORY_IDS):
-    _owners[tid] = "Red" if i < 15 else "Blue"
+_owners: dict[TerritoryId, Team] = {
+    tid: ("Red" if i < 15 else "Blue")
+    for i, tid in enumerate(ALL_TERRITORY_IDS)
+}
 
 
 def owner(tid: TerritoryId) -> Team:
