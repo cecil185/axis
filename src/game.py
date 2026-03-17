@@ -24,7 +24,8 @@ from .territory import (
 from .state import current_team
 from .valid_actions import can_skip, valid_attack_targets
 from .actions import attack, set_combat_hook, skip
-from .combat import roll_combat, resolve_combat
+from .combat import roll_combat, resolve_combat, resolve_combat_with_units
+from .units import units as territory_units
 
 # Layout: map on top, bottom bar underneath (left area) | right sidebar
 MARGIN = 16
@@ -162,17 +163,25 @@ def _draw_coord_tooltip(
     px, py = mouse_pos[0], mouse_pos[1]
     tid = territory_at_point((mx, my, mw, mh), px, py, MARKER_RADIUS + 4)
     if tid is not None:
-        text = f"{display_name(tid)} ({region(tid)})"
+        red_stack = territory_units(tid, "Red")
+        blue_stack = territory_units(tid, "Blue")
+        red_inf, red_tnk = red_stack.get("infantry", 0), red_stack.get("tanks", 0)
+        blue_inf, blue_tnk = blue_stack.get("infantry", 0), blue_stack.get("tanks", 0)
+        lines = [
+            f"{display_name(tid)} ({region(tid)})",
+            f"Red: {red_inf}inf {red_tnk}tnk  Blue: {blue_inf}inf {blue_tnk}tnk",
+        ]
     else:
         x_frac = (px - mx) / mw
         y_frac = (py - my) / mh
         x_frac = max(0.0, min(1.0, x_frac))
         y_frac = max(0.0, min(1.0, y_frac))
-        text = f"x: {x_frac:.3f}  y: {y_frac:.3f}"
-    label = font.render(text, True, TEXT_COLOR)
+        lines = [f"x: {x_frac:.3f}  y: {y_frac:.3f}"]
+    labels = [font.render(line, True, TEXT_COLOR) for line in lines]
     pad = 8
-    tw, th = label.get_size()
-    box_w, box_h = tw + 2 * pad, th + 2 * pad
+    line_gap = 4
+    box_w = max(lbl.get_width() for lbl in labels) + 2 * pad
+    box_h = sum(lbl.get_height() for lbl in labels) + 2 * pad + line_gap * (len(labels) - 1)
     # Place popup above and left of cursor so it doesn't cover the point
     popup_x = px - box_w - 12
     popup_y = py - box_h - 12
@@ -183,7 +192,10 @@ def _draw_coord_tooltip(
     popup_rect = pygame.Rect(popup_x, popup_y, box_w, box_h)
     pygame.draw.rect(screen, SIDEBAR_BG, popup_rect, border_radius=BORDER_RADIUS)
     pygame.draw.rect(screen, SIDEBAR_BORDER, popup_rect, 1, border_radius=BORDER_RADIUS)
-    screen.blit(label, (popup_rect.x + pad, popup_rect.y + pad))
+    y_off = popup_rect.y + pad
+    for lbl in labels:
+        screen.blit(lbl, (popup_rect.x + pad, y_off))
+        y_off += lbl.get_height() + line_gap
 
 
 def _draw_map(
@@ -378,9 +390,12 @@ def main() -> None:
     def on_combat(target_id: TerritoryId) -> None:
         global _last_combat
         att = current_team()
-        def_team = owner(target_id)
         att_roll, def_roll = roll_combat()
-        combat_winner = resolve_combat(att_roll, def_roll)
+        # Apply unit stats if an attacking territory is selected
+        if _selected_territory is not None:
+            combat_winner = resolve_combat_with_units(att_roll, def_roll, att, _selected_territory, target_id)
+        else:
+            combat_winner = resolve_combat(att_roll, def_roll)
         _last_combat = (att, att_roll, def_roll, combat_winner, target_id)
         if combat_winner == "attacker":
             set_owner(target_id, att)

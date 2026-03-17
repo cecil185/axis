@@ -17,7 +17,19 @@ from .territory import (
 from .state import current_team, end_turn
 from .valid_actions import can_skip, valid_attack_targets
 from .actions import attack, set_combat_hook, skip
-from .combat import roll_combat, resolve_combat, CombatRolls, CombatWinner
+from .combat import roll_combat, resolve_combat, resolve_combat_with_units, CombatRolls, CombatWinner
+from .units import (
+    unit_types,
+    get_unit_stats,
+    units,
+    set_units,
+    total_units,
+    owner_from_units,
+    init_game,
+    UnitType,
+    UnitCounts,
+    UnitStats,
+)
 
 __all__ = [
     "ALL_TERRITORY_IDS",
@@ -43,6 +55,17 @@ __all__ = [
     "set_combat_hook",
     "roll_combat",
     "resolve_combat",
+    "resolve_combat_with_units",
     "CombatRolls",
     "CombatWinner",
+    "unit_types",
+    "get_unit_stats",
+    "units",
+    "set_units",
+    "total_units",
+    "owner_from_units",
+    "init_game",
+    "UnitType",
+    "UnitCounts",
+    "UnitStats",
 ]
