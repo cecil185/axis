@@ -207,7 +207,7 @@ def _draw_map(
     selected: TerritoryId | None = None,
     pulse_alpha: int = 255,
 ) -> None:
-    """Draw map image and territory markers; pulse yellow outlines on valid attack targets."""
+    """Draw map image and territory markers with unit count labels; pulse yellow outlines on valid attack targets."""
     if map_surf is not None:
         screen.blit(map_surf, map_rect.topleft)
     mx, my, mw, mh = map_rect.x, map_rect.y, map_rect.w, map_rect.h
@@ -217,12 +217,28 @@ def _draw_map(
         selected_targets = {t for t in neighbors(selected) if t in all_targets}
     else:
         selected_targets = all_targets
+    unit_label_font = pygame.font.Font(None, 16)
     for tid in ALL_TERRITORY_IDS:
         x_frac, y_frac = map_position(tid)
         tx = int(mx + x_frac * mw)
         ty = int(my + y_frac * mh)
-        pygame.draw.circle(screen, TEAM_COLORS[owner(tid)], (tx, ty), MARKER_RADIUS)
+        tid_owner = owner(tid)
+        pygame.draw.circle(screen, TEAM_COLORS[tid_owner], (tx, ty), MARKER_RADIUS)
         pygame.draw.circle(screen, SIDEBAR_BORDER, (tx, ty), MARKER_RADIUS, MARKER_BORDER)
+        # Unit count label below marker
+        if tid_owner != "Neutral":
+            stack = territory_units(tid, tid_owner)
+            inf_count = stack.get("infantry", 0)
+            tnk_count = stack.get("tanks", 0)
+            label_text = f"{inf_count}i {tnk_count}t"
+            label_surf = unit_label_font.render(label_text, True, (255, 255, 255))
+            # Dark background for readability
+            lw, lh = label_surf.get_size()
+            bg_rect = pygame.Rect(tx - lw // 2 - 2, ty + MARKER_RADIUS + 2, lw + 4, lh + 2)
+            bg_surf = pygame.Surface((bg_rect.w, bg_rect.h), pygame.SRCALPHA)
+            bg_surf.fill((0, 0, 0, 160))
+            screen.blit(bg_surf, bg_rect.topleft)
+            screen.blit(label_surf, (tx - lw // 2, ty + MARKER_RADIUS + 3))
         # Green outline ring on selected territory
         if tid == selected:
             pygame.draw.circle(
