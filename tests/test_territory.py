@@ -2,6 +2,7 @@ from src.state import TEAMS
 from src.territory import (
     ALL_TERRITORY_IDS,
     display_name,
+    ipc_value,
     map_position,
     territory_at_point,
     neighbors,
@@ -145,6 +146,42 @@ def test_owner_returns_neutral_when_no_units_and_fallback_neutral() -> None:
         assert owner("hawaii") == "Neutral"
     finally:
         set_owner("hawaii", RED)
+
+
+# --- IPC value tests ---
+
+
+def test_ipc_value_strategic_territories_worth_3() -> None:
+    """Strategic territories (japan, hawaii, australia_east, australia_west) are worth 3 IPCs."""
+    for tid in ("japan", "hawaii", "australia_east", "australia_west"):
+        assert ipc_value(tid) == 3, f"{tid} should be worth 3 IPCs"
+
+
+def test_ipc_value_all_territories_in_range_1_to_3() -> None:
+    """Every territory has an IPC value between 1 and 3."""
+    for tid in ALL_TERRITORY_IDS:
+        v = ipc_value(tid)
+        assert 1 <= v <= 3, f"{tid} ipc_value={v} out of range 1–3"
+
+
+def test_ipc_value_remote_atolls_worth_1() -> None:
+    """Remote atolls and minor islands are worth 1 IPC."""
+    for tid in ("johnston", "minamitori", "belau", "nauru", "tuvalu", "tokelau",
+                "clipperton", "pitcairn", "rapa_nui"):
+        assert ipc_value(tid) == 1, f"{tid} should be worth 1 IPC"
+
+
+def test_ipc_value_mid_tier_worth_2() -> None:
+    """Mid-tier territories are worth 2 IPCs."""
+    for tid in ("indonesia", "philippines", "midway", "marshall", "fiji", "new_zealand"):
+        assert ipc_value(tid) == 2, f"{tid} should be worth 2 IPCs"
+
+
+def test_territory_info_includes_ipc_value() -> None:
+    """territory_info() includes ipc_value in the returned dict."""
+    info = territory_info("japan")
+    assert "ipc_value" in info
+    assert info["ipc_value"] == 3
 
 
 def test_winner_none_when_neutral_territory_exists() -> None:

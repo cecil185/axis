@@ -43,46 +43,47 @@ ALL_TERRITORY_IDS: tuple[TerritoryId, ...] = get_args(TerritoryId)
 
 
 class TerritoryInfo(TypedDict):
-    """Metadata for a territory: region, display_name, and map position (x_frac, y_frac)."""
+    """Metadata for a territory: region, display_name, map position (x_frac, y_frac), and ipc_value."""
 
     region: str
     display_name: str
     x_frac: float
     y_frac: float
+    ipc_value: int
 
 
 # Region, display name, and position on map (0–1 fractions: x left→right = Asia→Americas, y top→bottom).
 # Tuned for Pacific-centered map (src/img/map.jpg); dots sit on/near each EEZ/territory.
 _METADATA: dict[TerritoryId, TerritoryInfo] = {
-    "japan": {"region": "North Pacific", "display_name": "Japan", "x_frac": 0.2, "y_frac": 0.26},
-    "indonesia": {"region": "South Pacific", "display_name": "Indonesia", "x_frac": 0.10, "y_frac": 0.5},
-    "philippines": {"region": "North Pacific", "display_name": "Philippines", "x_frac": 0.08, "y_frac": 0.38},
-    "hawaii": {"region": "North Pacific", "display_name": "Hawaii", "x_frac": 0.56, "y_frac": 0.31},
-    "midway": {"region": "North Pacific", "display_name": "Midway", "x_frac": 0.4, "y_frac": 0.27},
-    "johnston": {"region": "North Pacific", "display_name": "Johnston", "x_frac": 0.47, "y_frac": 0.36},
-    "australia_west": {"region": "South Pacific", "display_name": "Australia West", "x_frac": 0.12, "y_frac": 0.63},
-    "marianas": {"region": "North Pacific", "display_name": "Marianas", "x_frac": 0.21, "y_frac": 0.31},
-    "minamitori": {"region": "North Pacific", "display_name": "Minamitori", "x_frac": 0.27, "y_frac": 0.27},
-    "micronesia": {"region": "Central Pacific", "display_name": "Micronesia", "x_frac": 0.285, "y_frac": 0.415},
-    "belau": {"region": "Central Pacific", "display_name": "Belau", "x_frac": 0.14, "y_frac": 0.41},
-    "marshall": {"region": "Central Pacific", "display_name": "Marshall", "x_frac": 0.345, "y_frac": 0.40},
-    "nauru": {"region": "Central Pacific", "display_name": "Nauru", "x_frac": 0.335, "y_frac": 0.465},
-    "kiribati": {"region": "Central Pacific", "display_name": "Kiribati", "x_frac": 0.58, "y_frac": 0.51},
-    "tuvalu": {"region": "South Pacific", "display_name": "Tuvalu", "x_frac": 0.42, "y_frac": 0.494},
-    "solomon": {"region": "South Pacific", "display_name": "Solomon", "x_frac": 0.355, "y_frac": 0.52},
-    "papua_new_guinea": {"region": "South Pacific", "display_name": "Papua New Guinea", "x_frac": 0.24, "y_frac": 0.48},
-    "vanuatu": {"region": "South Pacific", "display_name": "Vanuatu", "x_frac": 0.36, "y_frac": 0.58},
-    "fiji": {"region": "South Pacific", "display_name": "Fiji", "x_frac": 0.40, "y_frac": 0.582},
-    "australia_east": {"region": "South Pacific", "display_name": "Australia East", "x_frac": 0.24, "y_frac": 0.63},
-    "tokelau": {"region": "South Pacific", "display_name": "Tokelau", "x_frac": 0.50, "y_frac": 0.555},
-    "cook_islands": {"region": "South Pacific", "display_name": "Cook Islands", "x_frac": 0.53, "y_frac": 0.585},
-    "tonga": {"region": "South Pacific", "display_name": "Tonga", "x_frac": 0.44, "y_frac": 0.58},
-    "new_caledonia": {"region": "South Pacific", "display_name": "New Caledonia", "x_frac": 0.33, "y_frac": 0.61},
-    "new_zealand": {"region": "South Pacific", "display_name": "New Zealand", "x_frac": 0.40, "y_frac": 0.76},
-    "french_polynesia": {"region": "South Pacific", "display_name": "French Polynesia", "x_frac": 0.64, "y_frac": 0.58},
-    "clipperton": {"region": "Eastern Pacific", "display_name": "Clipperton", "x_frac": 0.82, "y_frac": 0.42},
-    "pitcairn": {"region": "Eastern Pacific", "display_name": "Pitcairn", "x_frac": 0.74, "y_frac": 0.64},
-    "rapa_nui": {"region": "Eastern Pacific", "display_name": "Rapa Nui", "x_frac": 0.83, "y_frac": 0.70},
+    "japan": {"region": "North Pacific", "display_name": "Japan", "x_frac": 0.2, "y_frac": 0.26, "ipc_value": 3},
+    "indonesia": {"region": "South Pacific", "display_name": "Indonesia", "x_frac": 0.10, "y_frac": 0.5, "ipc_value": 2},
+    "philippines": {"region": "North Pacific", "display_name": "Philippines", "x_frac": 0.08, "y_frac": 0.38, "ipc_value": 2},
+    "hawaii": {"region": "North Pacific", "display_name": "Hawaii", "x_frac": 0.56, "y_frac": 0.31, "ipc_value": 3},
+    "midway": {"region": "North Pacific", "display_name": "Midway", "x_frac": 0.4, "y_frac": 0.27, "ipc_value": 2},
+    "johnston": {"region": "North Pacific", "display_name": "Johnston", "x_frac": 0.47, "y_frac": 0.36, "ipc_value": 1},
+    "australia_west": {"region": "South Pacific", "display_name": "Australia West", "x_frac": 0.12, "y_frac": 0.63, "ipc_value": 3},
+    "marianas": {"region": "North Pacific", "display_name": "Marianas", "x_frac": 0.21, "y_frac": 0.31, "ipc_value": 2},
+    "minamitori": {"region": "North Pacific", "display_name": "Minamitori", "x_frac": 0.27, "y_frac": 0.27, "ipc_value": 1},
+    "micronesia": {"region": "Central Pacific", "display_name": "Micronesia", "x_frac": 0.285, "y_frac": 0.415, "ipc_value": 1},
+    "belau": {"region": "Central Pacific", "display_name": "Belau", "x_frac": 0.14, "y_frac": 0.41, "ipc_value": 1},
+    "marshall": {"region": "Central Pacific", "display_name": "Marshall", "x_frac": 0.345, "y_frac": 0.40, "ipc_value": 2},
+    "nauru": {"region": "Central Pacific", "display_name": "Nauru", "x_frac": 0.335, "y_frac": 0.465, "ipc_value": 1},
+    "kiribati": {"region": "Central Pacific", "display_name": "Kiribati", "x_frac": 0.58, "y_frac": 0.51, "ipc_value": 2},
+    "tuvalu": {"region": "South Pacific", "display_name": "Tuvalu", "x_frac": 0.42, "y_frac": 0.494, "ipc_value": 1},
+    "solomon": {"region": "South Pacific", "display_name": "Solomon", "x_frac": 0.355, "y_frac": 0.52, "ipc_value": 2},
+    "papua_new_guinea": {"region": "South Pacific", "display_name": "Papua New Guinea", "x_frac": 0.24, "y_frac": 0.48, "ipc_value": 2},
+    "vanuatu": {"region": "South Pacific", "display_name": "Vanuatu", "x_frac": 0.36, "y_frac": 0.58, "ipc_value": 1},
+    "fiji": {"region": "South Pacific", "display_name": "Fiji", "x_frac": 0.40, "y_frac": 0.582, "ipc_value": 2},
+    "australia_east": {"region": "South Pacific", "display_name": "Australia East", "x_frac": 0.24, "y_frac": 0.63, "ipc_value": 3},
+    "tokelau": {"region": "South Pacific", "display_name": "Tokelau", "x_frac": 0.50, "y_frac": 0.555, "ipc_value": 1},
+    "cook_islands": {"region": "South Pacific", "display_name": "Cook Islands", "x_frac": 0.53, "y_frac": 0.585, "ipc_value": 1},
+    "tonga": {"region": "South Pacific", "display_name": "Tonga", "x_frac": 0.44, "y_frac": 0.58, "ipc_value": 1},
+    "new_caledonia": {"region": "South Pacific", "display_name": "New Caledonia", "x_frac": 0.33, "y_frac": 0.61, "ipc_value": 1},
+    "new_zealand": {"region": "South Pacific", "display_name": "New Zealand", "x_frac": 0.40, "y_frac": 0.76, "ipc_value": 2},
+    "french_polynesia": {"region": "South Pacific", "display_name": "French Polynesia", "x_frac": 0.64, "y_frac": 0.58, "ipc_value": 2},
+    "clipperton": {"region": "Eastern Pacific", "display_name": "Clipperton", "x_frac": 0.82, "y_frac": 0.42, "ipc_value": 1},
+    "pitcairn": {"region": "Eastern Pacific", "display_name": "Pitcairn", "x_frac": 0.74, "y_frac": 0.64, "ipc_value": 1},
+    "rapa_nui": {"region": "Eastern Pacific", "display_name": "Rapa Nui", "x_frac": 0.83, "y_frac": 0.70, "ipc_value": 1},
 }
 
 # Adjacency: each territory lists neighbors (symmetric). Based on Pacific geography / EEZ proximity.
@@ -127,6 +128,11 @@ def region(tid: TerritoryId) -> str:
 def display_name(tid: TerritoryId) -> str:
     """Return the display name for the territory."""
     return _METADATA[tid]["display_name"]
+
+
+def ipc_value(tid: TerritoryId) -> int:
+    """Return the IPC value (1–3) for the territory."""
+    return _METADATA[tid]["ipc_value"]
 
 
 def map_position(tid: TerritoryId) -> tuple[float, float]:
