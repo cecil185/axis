@@ -37,6 +37,7 @@ TerritoryId = Literal[
     "rapa_nui",
 ]
 Team = Literal["Red", "Blue"]
+OwnerState = Literal["Red", "Blue", "Neutral"]
 
 ALL_TERRITORY_IDS: tuple[TerritoryId, ...] = get_args(TerritoryId)
 
@@ -160,15 +161,15 @@ def neighbors(tid: TerritoryId) -> list[TerritoryId]:
 
 # Initial ownership: Red first 15, Blue last 14.
 # Used as fallback when unit stacks are empty (e.g. before init_game).
-_owners: dict[TerritoryId, Team] = {
+_owners: dict[TerritoryId, OwnerState] = {
     tid: ("Red" if i < 15 else "Blue")
     for i, tid in enumerate(ALL_TERRITORY_IDS)
 }
 
 
-def owner(tid: TerritoryId) -> Team:
+def owner(tid: TerritoryId) -> OwnerState:
     """
-    Return the team that owns the territory.
+    Return the team that owns the territory, or 'Neutral' if unclaimed.
     Derives from unit stacks when available (owner_from_units); falls back
     to _owners when both teams have no units.
     """
@@ -180,12 +181,18 @@ def owner(tid: TerritoryId) -> Team:
     return _owners[tid]
 
 
-def set_owner(tid: TerritoryId, team: Team) -> None:
+def set_owner(tid: TerritoryId, team: OwnerState) -> None:
     """
-    Set the owner of the territory by transferring all units to the new team.
+    Set the owner of the territory. For Red/Blue, transfers all units to the new team.
     Clears losing team's units and gives winning team the standard stack if empty.
+    For Neutral, clears all units from both teams.
     """
     from .units import set_units, total_units  # noqa: PLC0415
+    if team == "Neutral":
+        set_units(tid, "Red", {"infantry": 0, "tanks": 0})
+        set_units(tid, "Blue", {"infantry": 0, "tanks": 0})
+        _owners[tid] = "Neutral"
+        return
     enemy: Team = "Blue" if team == "Red" else "Red"
     # Clear enemy units in the territory (attacker wins)
     set_units(tid, enemy, {"infantry": 0, "tanks": 0})
@@ -197,8 +204,10 @@ def set_owner(tid: TerritoryId, team: Team) -> None:
 
 
 def winner() -> Team | None:
-    """Return the team that owns all territories, or None if game is not over."""
+    """Return the team that owns all territories, or None if game is not over. Neutral territories prevent a winner."""
     first = owner(ALL_TERRITORY_IDS[0])
+    if first == "Neutral":
+        return None
     for tid in ALL_TERRITORY_IDS[1:]:
         if owner(tid) != first:
             return None

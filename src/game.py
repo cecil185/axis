@@ -40,7 +40,7 @@ TITLE = "Pacific Map (29 territories)"
 
 # Theme
 BG_COLOR = (28, 32, 38)
-TEAM_COLORS = {"Red": (200, 80, 80), "Blue": (80, 80, 200)}
+TEAM_COLORS = {"Red": (200, 80, 80), "Blue": (80, 80, 200), "Neutral": (140, 140, 140)}
 TEXT_COLOR = (230, 230, 240)
 SIDEBAR_BG = (45, 48, 55)
 SIDEBAR_BORDER = (70, 74, 90)
@@ -350,7 +350,7 @@ def _draw_bottom_bar(screen: pygame.Surface, bar: pygame.Rect, small_font: pygam
     x = bar.x + MARGIN
     cy = bar.centery
 
-    for team in ("Red", "Blue"):
+    for team in ("Red", "Blue", "Neutral"):
         count = sum(1 for tid in ALL_TERRITORY_IDS if owner(tid) == team)
         color = TEAM_COLORS[team]
         pygame.draw.circle(screen, color, (x + dot_radius, cy), dot_radius)

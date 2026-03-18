@@ -3,7 +3,7 @@
 from unittest.mock import patch
 
 from src.state import TEAMS, current_team, end_turn
-from src.territory import ALL_TERRITORY_IDS, set_owner
+from src.territory import ALL_TERRITORY_IDS, owner, set_owner
 from src.valid_actions import can_skip, valid_attack_targets
 
 RED, BLUE = TEAMS[0], TEAMS[1]
@@ -54,3 +54,17 @@ def test_no_valid_targets_when_current_team_owns_all() -> None:
     # Restore initial ownership (first 15 Red, last 15 Blue)
     for i, tid in enumerate(ALL_TERRITORY_IDS):
         set_owner(tid, RED if i < 15 else BLUE)
+
+
+def test_neutral_territories_not_in_valid_attack_targets() -> None:
+    """Neutral territories should not appear as valid attack targets."""
+    while current_team() != RED:
+        end_turn()
+    # Make a Blue territory adjacent to Red into Neutral
+    # tuvalu is Blue and adjacent to kiribati (Red) in initial setup
+    set_owner("tuvalu", "Neutral")
+    try:
+        targets = valid_attack_targets()
+        assert "tuvalu" not in targets
+    finally:
+        set_owner("tuvalu", BLUE)

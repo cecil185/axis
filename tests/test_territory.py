@@ -6,6 +6,7 @@ from src.territory import (
     territory_at_point,
     neighbors,
     owner,
+    OwnerState,
     region,
     set_owner,
     territory_info,
@@ -13,6 +14,7 @@ from src.territory import (
     winner,
     is_game_over,
 )
+from src.units import set_units
 
 RED, BLUE = TEAMS[0], TEAMS[1]
 
@@ -117,6 +119,44 @@ def test_winner_returns_team_when_owns_all() -> None:
         for tid in ALL_TERRITORY_IDS:
             set_owner(tid, BLUE)
         assert winner() == BLUE
+    finally:
+        for i, tid in enumerate(ALL_TERRITORY_IDS):
+            set_owner(tid, RED if i < 15 else BLUE)
+
+
+# --- Neutral ownership tests ---
+
+
+def test_set_owner_neutral_clears_units_and_sets_neutral() -> None:
+    """Setting a territory to Neutral clears all units and owner() returns 'Neutral'."""
+    set_owner("hawaii", "Neutral")
+    try:
+        assert owner("hawaii") == "Neutral"
+    finally:
+        set_owner("hawaii", RED)
+
+
+def test_owner_returns_neutral_when_no_units_and_fallback_neutral() -> None:
+    """When both teams have 0 units and fallback is Neutral, owner() returns 'Neutral'."""
+    set_units("hawaii", "Red", {"infantry": 0, "tanks": 0})
+    set_units("hawaii", "Blue", {"infantry": 0, "tanks": 0})
+    set_owner("hawaii", "Neutral")
+    try:
+        assert owner("hawaii") == "Neutral"
+    finally:
+        set_owner("hawaii", RED)
+
+
+def test_winner_none_when_neutral_territory_exists() -> None:
+    """Game cannot be won if any territory is Neutral."""
+    set_owner("rapa_nui", "Neutral")
+    try:
+        # Even if all others are Red, Neutral prevents a winner
+        for tid in ALL_TERRITORY_IDS:
+            if tid != "rapa_nui":
+                set_owner(tid, RED)
+        assert winner() is None
+        assert not is_game_over()
     finally:
         for i, tid in enumerate(ALL_TERRITORY_IDS):
             set_owner(tid, RED if i < 15 else BLUE)
