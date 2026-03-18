@@ -18,7 +18,7 @@ from .territory import (
 from .state import current_team, end_turn
 from .valid_actions import can_skip, valid_attack_targets
 from .actions import attack, set_combat_hook, skip
-from .combat import roll_combat, resolve_combat, resolve_combat_with_units, CombatRolls, CombatWinner
+from .combat import roll_combat, resolve_combat, resolve_combat_with_units, combat_phase, CombatRolls, CombatWinner, PhaseResult
 from .units import (
     unit_types,
     get_unit_stats,
@@ -60,6 +60,8 @@ __all__ = [
     "resolve_combat_with_units",
     "CombatRolls",
     "CombatWinner",
+    "PhaseResult",
+    "combat_phase",
     "unit_types",
     "get_unit_stats",
     "units",
