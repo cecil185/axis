@@ -15,9 +15,8 @@ When multiple agents work in parallel on this codebase:
   git rebase --continue
   git push
   ```
-- **After finishing an issue**: Run `bd ready --json` and claim the next available issue
-- **Do NOT close issues** — user reviews and closes after PR
-- **PR trigger**: After 6 issues are committed, the orchestrating agent opens a PR
+- **After finishing an issue**: Commit code, close issue, then run `bd ready --json` and claim the next available issue
+- **PR trigger**: After all issues are complete, the orchestrating agent opens a PR
 
 ---
 
@@ -126,7 +125,7 @@ bd update bd-42 --priority 1 --json
 3. **Work on it**: Implement, test, document
 4. **Discover new work?** Create linked issue:
    - `bd create "Found bug" --description="Details about what was found" -p 1 --deps discovered-from:<parent-id>`
-5. **Complete**: Commit and push to remote; do NOT close the bead — the user closes it after reviewing the changes.
+5. **Complete**: Commit then close the bead and take another bead.
 
 ### Auto-Sync
 
@@ -231,44 +230,6 @@ bv --robot-plan --label backend              # Scope to label's subgraph
 bv --robot-insights --as-of HEAD~30          # Historical point-in-time
 bv --recipe actionable --robot-plan          # Pre-filter: ready to work (no blockers)
 bv --recipe high-impact --robot-triage       # Pre-filter: top PageRank scores
-```
-
-### br Commands for Issue Management
-
-```bash
-br ready              # Show issues ready to work (no blockers)
-br list --status=open # All open issues
-br show <id>          # Full issue details with dependencies
-br create --title="..." --type=task --priority=2
-br update <id> --status=in_progress
-br close <id> --reason="Completed"
-br close <id1> <id2>  # Close multiple issues at once
-br sync --flush-only  # Export DB to JSONL
-```
-
-### Workflow Pattern
-
-1. **Triage**: Run `bv --robot-triage` to find the highest-impact actionable work
-2. **Claim**: Use `br update <id> --status=in_progress`
-3. **Work**: Implement the task
-4. **Complete**: Use `br close <id>`
-5. **Sync**: Always run `br sync --flush-only` at session end
-
-### Key Concepts
-
-- **Dependencies**: Issues can block other issues. `br ready` shows only unblocked work.
-- **Priority**: P0=critical, P1=high, P2=medium, P3=low, P4=backlog (use numbers 0-4, not words)
-- **Types**: task, bug, feature, epic, chore, docs, question
-- **Blocking**: `br dep add <issue> <depends-on>` to add dependencies
-
-### Session Protocol
-
-```bash
-git status              # Check what changed
-git add <files>         # Stage code changes
-br sync --flush-only    # Export beads changes to JSONL
-git commit -m "..."     # Commit everything
-git push                # Push to remote
 ```
 
 <!-- end-bv-agent-instructions -->
