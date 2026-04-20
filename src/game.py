@@ -8,6 +8,7 @@ import math
 import os
 
 import pygame
+import pygame_gui
 from .territory import (
     ALL_TERRITORY_IDS,
     display_name,
@@ -69,6 +70,11 @@ _last_combat: tuple[str, int, int, str, TerritoryId, TerritoryId | None] | None 
 # Currently selected territory to attack FROM (green outline); None if none selected
 _selected_territory: TerritoryId | None = None
 
+# Active tooltip panel managed by pygame-gui (None when no territory hovered)
+_tooltip_panel: "pygame_gui.elements.UIPanel | None" = None
+# The territory ID the active tooltip is for (to detect when mouse moves to new territory)
+_tooltip_tid: "TerritoryId | None" = None
+
 # Highlight color for valid attack cells on hover / pulse
 HOVER_HIGHLIGHT_COLOR = (255, 255, 200)
 HOVER_HIGHLIGHT_WIDTH = 4
@@ -111,18 +117,38 @@ def _load_map_surface() -> pygame.Surface | None:
     return pygame.transform.smoothscale(img, (MAP_WIDTH, MAP_HEIGHT))
 
 
-def _handle_events(sidebar: pygame.Rect, map_surf: pygame.Surface | None, map_rect: pygame.Rect) -> bool:
+def _handle_events(
+    sidebar: pygame.Rect,
+    map_surf: pygame.Surface | None,
+    map_rect: pygame.Rect,
+    ui_manager: "pygame_gui.UIManager | None" = None,
+    end_turn_btn: "pygame_gui.elements.UIButton | None" = None,
+) -> bool:
     global _selected_territory
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             return False
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
             return False
+
+        # Let pygame-gui process the event first so button states update
+        if ui_manager is not None:
+            ui_manager.process_events(event)
+
+        # UIButton End Turn press (pygame-gui event)
+        if event.type == pygame_gui.UI_BUTTON_PRESSED:
+            if end_turn_btn is not None and event.ui_element is end_turn_btn:
+                if not is_game_over():
+                    skip()
+                    _selected_territory = None
+            continue
+
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if is_game_over():
                 # No actions allowed once the game has ended
                 continue
-            if end_turn_button_rect(sidebar).collidepoint(event.pos):
+            # If using raw button fallback (no ui_manager), handle it here
+            if ui_manager is None and end_turn_button_rect(sidebar).collidepoint(event.pos):
                 skip()
                 _selected_territory = None
             else:
@@ -152,46 +178,156 @@ def _handle_events(sidebar: pygame.Rect, map_surf: pygame.Surface | None, map_re
     return True
 
 
+def _build_tooltip_lines(tid: TerritoryId) -> list[str]:
+    """Build the list of text lines for a territory tooltip card."""
+    owning_state = owner(tid)
+    lines = [f"{display_name(tid)} ({region(tid)})"]
+    if owning_state == "Neutral":
+        lines.append("Neutral (unclaimed)")
+    else:
+        own_stack = territory_units(tid, owning_state)
+        own_inf = own_stack.get("infantry", 0)
+        own_tnk = own_stack.get("tanks", 0)
+        enemy_team = "Blue" if owning_state == "Red" else "Red"
+        enemy_stack = territory_units(tid, enemy_team)
+        enemy_inf = enemy_stack.get("infantry", 0)
+        enemy_tnk = enemy_stack.get("tanks", 0)
+        lines.append(f"{owning_state}: {own_inf} inf {own_tnk} tnk")
+        if enemy_inf > 0 or enemy_tnk > 0:
+            lines.append(f"{enemy_team}: {enemy_inf} inf {enemy_tnk} tnk")
+    return lines
+
+
+def _compute_tooltip_rect(
+    mouse_pos: tuple[int, int],
+    box_w: int,
+    box_h: int,
+) -> pygame.Rect:
+    """Compute tooltip card rect near cursor, clamped to window bounds."""
+    px, py = mouse_pos
+    # Prefer above-left of cursor
+    popup_x = px - box_w - 12
+    popup_y = py - box_h - 12
+    # Clamp to window
+    if popup_x < 0:
+        popup_x = px + 12
+    if popup_y < 0:
+        popup_y = py + 12
+    # Clamp right/bottom edges
+    if popup_x + box_w > WIDTH:
+        popup_x = WIDTH - box_w - 4
+    if popup_y + box_h > HEIGHT:
+        popup_y = HEIGHT - box_h - 4
+    return pygame.Rect(popup_x, popup_y, box_w, box_h)
+
+
+# Tooltip card dimensions
+_TOOLTIP_LINE_HEIGHT = 22
+_TOOLTIP_PAD = 10
+_TOOLTIP_MIN_W = 200
+
+
+def _update_territory_tooltip(
+    map_rect: pygame.Rect,
+    mouse_pos: tuple[int, int],
+    ui_manager: "pygame_gui.UIManager",
+) -> None:
+    """Create, update, or destroy the styled territory tooltip panel based on mouse position.
+
+    Uses module-level _tooltip_panel and _tooltip_tid to track state between frames.
+    When mouse moves to a new territory, old panel is destroyed and a new one created.
+    When mouse leaves all territories, panel is destroyed.
+    """
+    global _tooltip_panel, _tooltip_tid
+
+    # Determine which territory (if any) the mouse is over
+    current_tid: TerritoryId | None = None
+    if map_rect.collidepoint(mouse_pos):
+        mx, my, mw, mh = map_rect.x, map_rect.y, map_rect.w, map_rect.h
+        px, py = mouse_pos
+        current_tid = territory_at_point((mx, my, mw, mh), px, py, MARKER_RADIUS + 4)
+
+    # Destroy stale tooltip when tid changes or mouse leaves map
+    if _tooltip_tid != current_tid:
+        if _tooltip_panel is not None:
+            _tooltip_panel.kill()
+            _tooltip_panel = None
+        _tooltip_tid = current_tid
+
+    # Nothing to show
+    if current_tid is None:
+        return
+
+    # If tooltip already exists for this tid, reposition to follow cursor
+    lines = _build_tooltip_lines(current_tid)
+    box_w = max(_TOOLTIP_MIN_W, max(len(ln) * 8 for ln in lines) + 2 * _TOOLTIP_PAD)
+    box_h = len(lines) * _TOOLTIP_LINE_HEIGHT + 2 * _TOOLTIP_PAD
+    card_rect = _compute_tooltip_rect(mouse_pos, box_w, box_h)
+
+    if _tooltip_panel is not None:
+        # Move existing panel to follow cursor
+        _tooltip_panel.set_relative_position(card_rect.topleft)
+        return
+
+    # Create a new styled panel card
+    _tooltip_panel = pygame_gui.elements.UIPanel(
+        relative_rect=card_rect,
+        starting_height=10,  # render above most other elements
+        manager=ui_manager,
+        object_id=pygame_gui.core.ObjectID(class_id="@tooltip_panel"),
+    )
+
+    # Lay out one UILabel per line inside the panel
+    label_y = _TOOLTIP_PAD
+    for line in lines:
+        label_rect = pygame.Rect(
+            _TOOLTIP_PAD,
+            label_y,
+            box_w - 2 * _TOOLTIP_PAD,
+            _TOOLTIP_LINE_HEIGHT,
+        )
+        pygame_gui.elements.UILabel(
+            relative_rect=label_rect,
+            text=line,
+            manager=ui_manager,
+            container=_tooltip_panel,
+        )
+        label_y += _TOOLTIP_LINE_HEIGHT
+
+
 def _draw_coord_tooltip(
     screen: pygame.Surface,
     map_rect: pygame.Rect,
     mouse_pos: tuple[int, int],
     font: pygame.font.Font,
+    ui_manager: "pygame_gui.UIManager | None" = None,
 ) -> None:
-    """Draw a hover popup: territory name+region+unit counts when over a marker, else x,y fractions."""
+    """Draw a hover popup: territory name+region+unit counts when over a marker.
+
+    When ui_manager is provided, delegates to pygame-gui styled panel cards.
+    Falls back to raw pygame drawing when ui_manager is None (e.g. tests).
+    """
+    if ui_manager is not None:
+        _update_territory_tooltip(map_rect, mouse_pos, ui_manager)
+        return
+
+    # --- Fallback: raw pygame drawing (no ui_manager) ---
     if not map_rect.collidepoint(mouse_pos):
         return
     mx, my, mw, mh = map_rect.x, map_rect.y, map_rect.w, map_rect.h
     px, py = mouse_pos[0], mouse_pos[1]
     tid = territory_at_point((mx, my, mw, mh), px, py, MARKER_RADIUS + 4)
     if tid is not None:
-        owning_state = owner(tid)
-        lines = [f"{display_name(tid)} ({region(tid)})"]
-        if owning_state == "Neutral":
-            lines.append("Neutral (unclaimed)")
-        else:
-            own_stack = territory_units(tid, owning_state)
-            own_inf = own_stack.get("infantry", 0)
-            own_tnk = own_stack.get("tanks", 0)
-            enemy_team = "Blue" if owning_state == "Red" else "Red"
-            enemy_stack = territory_units(tid, enemy_team)
-            enemy_inf = enemy_stack.get("infantry", 0)
-            enemy_tnk = enemy_stack.get("tanks", 0)
-            lines.append(f"{owning_state}: {own_inf} inf {own_tnk} tnk")
-            if enemy_inf > 0 or enemy_tnk > 0:
-                lines.append(f"{enemy_team}: {enemy_inf} inf {enemy_tnk} tnk")
+        lines = _build_tooltip_lines(tid)
     else:
-        x_frac = (px - mx) / mw
-        y_frac = (py - my) / mh
-        x_frac = max(0.0, min(1.0, x_frac))
-        y_frac = max(0.0, min(1.0, y_frac))
+        x_frac = max(0.0, min(1.0, (px - mx) / mw))
+        y_frac = max(0.0, min(1.0, (py - my) / mh))
         lines = [f"x: {x_frac:.3f}  y: {y_frac:.3f}"]
     labels = [font.render(line, True, TEXT_COLOR) for line in lines]
     pad = 8
     line_gap = 4
     box_w = max(lbl.get_width() for lbl in labels) + 2 * pad
     box_h = sum(lbl.get_height() for lbl in labels) + 2 * pad + line_gap * (len(labels) - 1)
-    # Place popup above and left of cursor so it doesn't cover the point
     popup_x = px - box_w - 12
     popup_y = py - box_h - 12
     if popup_x < map_rect.x:
@@ -508,6 +644,7 @@ def _draw_right_sidebar(
     sidebar: pygame.Rect,
     small_font: pygame.font.Font,
     btn_font: pygame.font.Font,
+    use_gui_button: bool = False,
 ) -> None:
     pygame.draw.rect(screen, SIDEBAR_BG, sidebar)
     pygame.draw.line(screen, SIDEBAR_BORDER, (sidebar.left, 0), (sidebar.left, HEIGHT), SIDEBAR_LINE_WIDTH)
@@ -527,14 +664,16 @@ def _draw_right_sidebar(
     y += attack_txt.get_height() + SIDEBAR_LINE_GAP
     skip_txt = small_font.render(f"Skip: {'yes' if skip_ok else 'no'}", True, TEXT_COLOR)
     screen.blit(skip_txt, (sidebar.x + SIDEBAR_PAD, y))
-    btn = end_turn_button_rect(sidebar)
-    pygame.draw.rect(screen, BTN_BG, btn, border_radius=BORDER_RADIUS)
-    btn_text = btn_font.render("End turn", True, TEXT_COLOR)
-    screen.blit(btn_text, btn_text.get_rect(center=btn.center))
+    # Draw the raw fallback button only when not using the pygame-gui UIButton
+    if not use_gui_button:
+        btn = end_turn_button_rect(sidebar)
+        pygame.draw.rect(screen, BTN_BG, btn, border_radius=BORDER_RADIUS)
+        btn_text = btn_font.render("End turn", True, TEXT_COLOR)
+        screen.blit(btn_text, btn_text.get_rect(center=btn.center))
 
 
 def main() -> None:
-    global _last_combat, _selected_territory
+    global _last_combat, _selected_territory, _tooltip_panel, _tooltip_tid
     pygame.init()
     screen = pygame.display.set_mode((WIDTH, HEIGHT))
     pygame.display.set_caption(TITLE)
@@ -542,6 +681,18 @@ def main() -> None:
     small_font = pygame.font.Font(None, FONT_SIZE_SMALL)
     btn_font = pygame.font.Font(None, FONT_SIZE_BTN)
     unit_label_font = pygame.font.Font(None, FONT_SIZE_UNIT_LABEL)
+
+    # --- pygame-gui setup ---
+    ui_manager = pygame_gui.UIManager((WIDTH, HEIGHT))
+
+    # Create the styled End Turn button via pygame-gui
+    sidebar = right_sidebar_rect()
+    btn_rect = end_turn_button_rect(sidebar)
+    end_turn_btn = pygame_gui.elements.UIButton(
+        relative_rect=btn_rect,
+        text="End Turn",
+        manager=ui_manager,
+    )
 
     def on_combat(target_id: TerritoryId) -> None:
         global _last_combat
@@ -561,9 +712,12 @@ def main() -> None:
     clock = pygame.time.Clock()
     running = True
     while running:
+        time_delta = clock.tick(FPS) / 1000.0
         map_rect = _map_rect()
         prev_team = current_team()
-        running = _handle_events(right_sidebar_rect(), map_surf, map_rect)
+        running = _handle_events(
+            right_sidebar_rect(), map_surf, map_rect, ui_manager, end_turn_btn
+        )
         if not running:
             break
         # Clear selection after end_turn (team changed)
@@ -578,9 +732,13 @@ def main() -> None:
         sine_val = (1.0 + math.sin(2 * math.pi * phase - math.pi / 2)) / 2  # 0.0 to 1.0
         pulse_alpha = int(PULSE_ALPHA_MIN + (PULSE_ALPHA_MAX - PULSE_ALPHA_MIN) * sine_val)
         _draw_map(screen, map_rect, map_surf, mouse_pos, _selected_territory, pulse_alpha, unit_label_font)
-        _draw_coord_tooltip(screen, map_rect, mouse_pos, small_font)
+        # Tooltip: managed by pygame-gui (created/destroyed in _draw_coord_tooltip)
+        _draw_coord_tooltip(screen, map_rect, mouse_pos, small_font, ui_manager)
         _draw_bottom_bar(screen, bottom_bar_rect(), small_font)
-        _draw_right_sidebar(screen, sidebar, small_font, btn_font)
+        _draw_right_sidebar(screen, sidebar, small_font, btn_font, use_gui_button=True)
+        # Update and draw pygame-gui widgets on top of everything else
+        ui_manager.update(time_delta)
+        ui_manager.draw_ui(screen)
         pygame.display.flip()
         if _last_combat is not None:
             att_team, att_roll, def_roll, combat_winner, def_tid, att_tid = _last_combat
@@ -592,7 +750,11 @@ def main() -> None:
             if w is not None:
                 _show_winner_popup(screen, w, clock)
             break
-        clock.tick(FPS)
+    # Clean up tooltip panel on exit
+    if _tooltip_panel is not None:
+        _tooltip_panel.kill()
+        _tooltip_panel = None
+    _tooltip_tid = None
     pygame.quit()
 
 

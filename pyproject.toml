@@ -9,6 +9,7 @@ packages = [{ include = "src" }]
 [tool.poetry.dependencies]
 python = "^3.10"
 pygame = ">=2.5.0"
+pygame-gui = ">=0.6.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.0.0"
