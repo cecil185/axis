@@ -1,6 +1,11 @@
 # agent-3
 
-Pacific map (30 territories) — Python + Pygame. Uses `src/img/map.jpg` as background; territories are clickable markers.
+Pacific map (30 territories) — Python + Pygame + pygame-gui. Uses `src/img/map.jpg` as background; territories are clickable markers.
+
+## UI Stack
+
+- **pygame** — window, event loop, map rendering, combat popups
+- **pygame-gui** — polished widgets: End Turn button (with hover/press states), territory tooltip cards (UIPanel + UILabel), right sidebar panel, bottom bar team labels
 
 ## Setup
 

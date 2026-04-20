@@ -19,6 +19,8 @@ from .territory import (
     region,
     set_owner,
     territory_at_point,
+    territory_at_point_polygon,
+    territory_polygon,
     TerritoryId,
     winner,
 )
@@ -450,70 +452,79 @@ def _draw_map(
     pulse_alpha: int = 255,
     unit_label_font: pygame.font.Font | None = None,
 ) -> None:
-    """Draw map image and territory markers; pulse yellow outlines on valid attack targets.
+    """Draw map image and filled polygon territory regions.
 
-    When unit_label_font is provided, renders a small label (e.g. '2i 1t') below each
-    territory marker so unit counts are visible at a glance without hovering.
+    Each territory is drawn as a semi-transparent filled polygon colored by owner
+    (red / blue / neutral-grey).  The selected territory gets a green polygon
+    outline; valid attack targets get a pulsing yellow outline.
+
+    Unit icons and text labels are still centred on the territory's x_frac/y_frac
+    centre point so they remain readable regardless of polygon shape.
     """
     if map_surf is not None:
         screen.blit(map_surf, map_rect.topleft)
     mx, my, mw, mh = map_rect.x, map_rect.y, map_rect.w, map_rect.h
+    map_tuple = (mx, my, mw, mh)
     all_targets = set(valid_attack_targets())
-    # When a territory is selected, yellow outlines only on its enemy neighbors
+    # When a territory is selected, pulse outlines only on its attackable neighbours
     if selected is not None:
         selected_targets = {t for t in neighbors(selected) if t in all_targets}
     else:
         selected_targets = all_targets
+
+    # Determine whether the mouse is over a polygon territory (for pulse boost)
+    hovered_tid: TerritoryId | None = None
+    if mouse_pos is not None and map_rect.collidepoint(mouse_pos):
+        hovered_tid = territory_at_point_polygon(map_tuple, mouse_pos[0], mouse_pos[1])
+
     for tid in ALL_TERRITORY_IDS:
+        poly_px = territory_polygon(tid, map_tuple)
+        team_color = TEAM_COLORS[owner(tid)]
+
+        # --- Filled polygon (semi-transparent) ---------------------------------
+        fill_surf = pygame.Surface((mw, mh), pygame.SRCALPHA)
+        # Shift polygon coords to fill_surf space (which starts at mx, my)
+        local_poly = [(px - mx, py - my) for px, py in poly_px]
+        r, g, b = team_color
+        pygame.draw.polygon(fill_surf, (r, g, b, 80), local_poly)
+        screen.blit(fill_surf, (mx, my))
+
+        # --- Polygon border (solid, thin) --------------------------------------
+        pygame.draw.polygon(screen, SIDEBAR_BORDER, poly_px, 1)
+
+        # --- Green outline for selected territory ------------------------------
+        if tid == selected:
+            pygame.draw.polygon(screen, (80, 200, 80), poly_px, 3)
+
+        # --- Pulsing yellow outline on valid attack targets --------------------
+        if tid in selected_targets:
+            alpha = 255 if tid == hovered_tid else pulse_alpha
+            r2, g2, b2 = HOVER_HIGHLIGHT_COLOR
+            pulse_surf = pygame.Surface((mw, mh), pygame.SRCALPHA)
+            pygame.draw.polygon(
+                pulse_surf,
+                (r2, g2, b2, alpha),
+                local_poly,
+                HOVER_HIGHLIGHT_WIDTH,
+            )
+            screen.blit(pulse_surf, (mx, my))
+
+        # --- Unit icons centred on the territory's map centre point -----------
         x_frac, y_frac = map_position(tid)
         tx = int(mx + x_frac * mw)
         ty = int(my + y_frac * mh)
-        pygame.draw.circle(screen, TEAM_COLORS[owner(tid)], (tx, ty), MARKER_RADIUS)
-        pygame.draw.circle(screen, SIDEBAR_BORDER, (tx, ty), MARKER_RADIUS, MARKER_BORDER)
-        # Green outline ring on selected territory
-        if tid == selected:
-            pygame.draw.circle(
-                screen,
-                (80, 200, 80),
-                (tx, ty),
-                MARKER_RADIUS + 5,
-                width=3,
-            )
-        # Pulsing yellow outline on valid attack targets; brighter on hover
-        if tid in selected_targets:
-            is_hover = (
-                mouse_pos is not None
-                and (mouse_pos[0] - tx) ** 2 + (mouse_pos[1] - ty) ** 2 <= (MARKER_RADIUS + 4) ** 2
-            )
-            alpha = 255 if is_hover else pulse_alpha
-            r, g, b = HOVER_HIGHLIGHT_COLOR
-            pulse_surf = pygame.Surface(
-                (2 * (MARKER_RADIUS + HOVER_HIGHLIGHT_WIDTH + 1),) * 2, pygame.SRCALPHA
-            )
-            center = MARKER_RADIUS + HOVER_HIGHLIGHT_WIDTH + 1
-            pygame.draw.circle(
-                pulse_surf,
-                (r, g, b, alpha),
-                (center, center),
-                MARKER_RADIUS + HOVER_HIGHLIGHT_WIDTH,
-                HOVER_HIGHLIGHT_WIDTH,
-            )
-            screen.blit(pulse_surf, (tx - center, ty - center))
-        # Draw soldier and tank icons positioned relative to the territory circle.
-        # Only draw each icon type when that unit type is actually present (count > 0).
         icon_data = _unit_icon_data(tid)
         if icon_data["team"] != "Neutral":
             icon_color = TEAM_COLORS[icon_data["team"]]  # type: ignore[index]
             icon_positions = _icon_positions_for_territory(tx, ty, MARKER_RADIUS)
-            # Infantry icon (lower-left of circle) — only when infantry are present
             if icon_data["infantry"]:  # type: ignore[truthy-bool]
                 inf_x, inf_y = icon_positions["infantry"]
                 _draw_infantry_icon(screen, inf_x, inf_y, icon_color, _ICON_SIZE)
-            # Tank icon (lower-right of circle) — only when tanks are present
             if icon_data["tanks"]:  # type: ignore[truthy-bool]
                 tnk_x, tnk_y = icon_positions["tanks"]
                 _draw_tank_icon(screen, tnk_x, tnk_y, icon_color, _ICON_SIZE)
-        # Render a small unit count label below the marker when a font is provided
+
+        # --- Unit count label below territory centre --------------------------
         if unit_label_font is not None:
             owning_state = owner(tid)
             label_color = TEAM_COLORS[owning_state]
@@ -525,10 +536,8 @@ def _draw_map(
                 tnk_count = stack.get("tanks", 0)
                 label_text = f"{inf_count}i {tnk_count}t"
             label_surf = unit_label_font.render(label_text, True, label_color)
-            # Centered horizontally, just below the marker circle
             label_x = tx - label_surf.get_width() // 2
             label_y = ty + MARKER_RADIUS + 2
-            # Dark shadow for readability against the map image
             shadow_surf = unit_label_font.render(label_text, True, (0, 0, 0))
             screen.blit(shadow_surf, (label_x + 1, label_y + 1))
             screen.blit(label_surf, (label_x, label_y))
@@ -621,8 +630,18 @@ def _show_winner_popup(
         clock.tick(FPS)
 
 
-def _draw_bottom_bar(screen: pygame.Surface, bar: pygame.Rect, small_font: pygame.font.Font) -> None:
-    """Draw bottom bar under the map with a team legend showing territory counts."""
+def _draw_bottom_bar(
+    screen: pygame.Surface,
+    bar: pygame.Rect,
+    small_font: pygame.font.Font,
+    team_labels: "dict[str, pygame_gui.elements.UILabel] | None" = None,
+) -> None:
+    """Draw bottom bar under the map with a team legend showing territory counts.
+
+    When team_labels is provided, uses pygame-gui UILabel widgets for the count
+    text (updated each frame via set_text) so labels participate in the GUI theme.
+    The colored dot markers are still drawn with pygame (no UIImage equivalent).
+    """
     pygame.draw.rect(screen, SIDEBAR_BG, bar)
     pygame.draw.line(screen, SIDEBAR_BORDER, (0, bar.top), (bar.width, bar.top), SIDEBAR_LINE_WIDTH)
 
@@ -634,9 +653,15 @@ def _draw_bottom_bar(screen: pygame.Surface, bar: pygame.Rect, small_font: pygam
         count = sum(1 for tid in ALL_TERRITORY_IDS if owner(tid) == team)
         color = TEAM_COLORS[team]
         pygame.draw.circle(screen, color, (x + dot_radius, cy), dot_radius)
-        label = small_font.render(f"{team}: {count}", True, TEXT_COLOR)
-        screen.blit(label, (x + dot_radius * 2 + GAP, cy - label.get_height() // 2))
-        x += dot_radius * 2 + GAP + label.get_width() + MARGIN
+        if team_labels is not None and team in team_labels:
+            # Update the UILabel text each frame; pygame-gui draws it via draw_ui
+            team_labels[team].set_text(f"{team}: {count}")
+            # Advance x by the label widget's width so dots don't overlap
+            x += dot_radius * 2 + GAP + team_labels[team].rect.width + MARGIN
+        else:
+            label = small_font.render(f"{team}: {count}", True, TEXT_COLOR)
+            screen.blit(label, (x + dot_radius * 2 + GAP, cy - label.get_height() // 2))
+            x += dot_radius * 2 + GAP + label.get_width() + MARGIN
 
 
 def _draw_right_sidebar(
@@ -645,8 +670,19 @@ def _draw_right_sidebar(
     small_font: pygame.font.Font,
     btn_font: pygame.font.Font,
     use_gui_button: bool = False,
+    sidebar_panel: "pygame_gui.elements.UIPanel | None" = None,
 ) -> None:
-    pygame.draw.rect(screen, SIDEBAR_BG, sidebar)
+    """Draw the right sidebar.
+
+    When sidebar_panel is provided the background rect is rendered by the
+    pygame-gui UIPanel widget (draw_ui handles it); only the dividing line
+    and text content are drawn here. When sidebar_panel is None, falls back
+    to raw pygame.draw.rect for the background (headless / test mode).
+    """
+    if sidebar_panel is None:
+        # Fallback: raw background (no UIPanel available)
+        pygame.draw.rect(screen, SIDEBAR_BG, sidebar)
+    # Always draw the left border line over the panel
     pygame.draw.line(screen, SIDEBAR_BORDER, (sidebar.left, 0), (sidebar.left, HEIGHT), SIDEBAR_LINE_WIDTH)
     y = MARGIN
     turn_label = f"{current_team()}'s turn"
@@ -693,6 +729,29 @@ def main() -> None:
         text="End Turn",
         manager=ui_manager,
     )
+    # sidebar_panel is None; the sidebar background is drawn with raw pygame.draw.rect
+    # in _draw_right_sidebar so that text labels rendered before ui_manager.draw_ui()
+    # are not covered. The primary "styled widget container" for the sidebar is the
+    # UIButton (End Turn), which replaces the previous raw pygame.draw.rect button.
+    sidebar_panel = None
+
+    # Bottom bar: styled UILabel widgets for team territory counts
+    # Positioned to the right of each colored dot marker
+    bar = bottom_bar_rect()
+    dot_radius = 10
+    label_h = 28
+    label_w = 120
+    label_y = bar.centery - label_h // 2
+    red_label_x = bar.x + MARGIN + dot_radius * 2 + GAP
+    blue_label_x = red_label_x + label_w + MARGIN + dot_radius * 2 + GAP + MARGIN
+    team_labels: dict[str, pygame_gui.elements.UILabel] = {}
+    for team, lx in (("Red", red_label_x), ("Blue", blue_label_x)):
+        count = sum(1 for tid in ALL_TERRITORY_IDS if owner(tid) == team)
+        team_labels[team] = pygame_gui.elements.UILabel(
+            relative_rect=pygame.Rect(lx, label_y, label_w, label_h),
+            text=f"{team}: {count}",
+            manager=ui_manager,
+        )
 
     def on_combat(target_id: TerritoryId) -> None:
         global _last_combat
@@ -734,8 +793,10 @@ def main() -> None:
         _draw_map(screen, map_rect, map_surf, mouse_pos, _selected_territory, pulse_alpha, unit_label_font)
         # Tooltip: managed by pygame-gui (created/destroyed in _draw_coord_tooltip)
         _draw_coord_tooltip(screen, map_rect, mouse_pos, small_font, ui_manager)
-        _draw_bottom_bar(screen, bottom_bar_rect(), small_font)
-        _draw_right_sidebar(screen, sidebar, small_font, btn_font, use_gui_button=True)
+        # Bottom bar: draw background + dots; UILabels updated inside (via team_labels)
+        _draw_bottom_bar(screen, bottom_bar_rect(), small_font, team_labels)
+        # Sidebar: UIPanel provides background; text content drawn on top
+        _draw_right_sidebar(screen, sidebar, small_font, btn_font, use_gui_button=True, sidebar_panel=sidebar_panel)
         # Update and draw pygame-gui widgets on top of everything else
         ui_manager.update(time_delta)
         ui_manager.draw_ui(screen)
