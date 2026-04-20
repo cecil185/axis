@@ -16,7 +16,7 @@ API:
 
 from typing import Literal, TypedDict
 
-from .territory import ALL_TERRITORY_IDS, Team, TerritoryId
+from .territory import ALL_TERRITORY_IDS, NEUTRAL_TERRITORIES, Team, TerritoryId, is_neutral_start
 
 # --- Unit types ---
 
@@ -103,12 +103,21 @@ def init_game() -> None:
     Initialize unit stacks for game start.
     Red territories get 2 infantry + 1 tank for Red, 0 for Blue.
     Blue territories get 2 infantry + 1 tank for Blue, 0 for Red.
+    NEUTRAL_TERRITORIES are skipped: they start ownerless with no units,
+    and territory._owners is updated to 'Neutral' for each.
     """
+    from .territory import set_neutral  # noqa: PLC0415
     empty: UnitCounts = {"infantry": 0, "tanks": 0}
     for tid in _STARTING_RED_TERRITORIES:
+        if is_neutral_start(tid):
+            set_neutral(tid)
+            continue
         set_units(tid, "Red", dict(_STARTING_COUNTS))
         set_units(tid, "Blue", dict(empty))
     for tid in _STARTING_BLUE_TERRITORIES:
+        if is_neutral_start(tid):
+            set_neutral(tid)
+            continue
         set_units(tid, "Blue", dict(_STARTING_COUNTS))
         set_units(tid, "Red", dict(empty))
 

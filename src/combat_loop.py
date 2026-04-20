@@ -4,10 +4,11 @@ Multi-phase combat loop (axis-6p3).
 CombatLoop manages the full combat interaction:
 - Runs sequential combat phases using combat_phase().
 - After each phase:
-  - If either side has no remaining units: award ownership to survivors and end.
+  - If either side has no remaining units: sets ATTACKER_WINS or DEFENDER_WINS.
+    The caller is responsible for calling set_owner() based on the resulting status.
   - If both sides still have units: await a continue/retreat decision.
 - When awaiting a decision:
-  - If either side retreats: end combat with no ownership change.
+  - If either side retreats: end combat with no ownership change (RETREAT_NO_CHANGE).
   - If both continue: run the next phase.
 
 Usage
@@ -17,7 +18,7 @@ Usage
     state = loop.get_combat_state()
     if state["status"] == CombatStatus.AWAITING_DECISION:
         loop.submit_decision(attacker_continues=True, defender_continues=False)
-    # Check state["status"] for ATTACKER_WINS / DEFENDER_WINS / RETREAT_NO_CHANGE
+    # Check state["status"]; call set_owner() if ATTACKER_WINS, do nothing if DEFENDER_WINS or RETREAT_NO_CHANGE
 """
 
 from enum import Enum
@@ -168,12 +169,12 @@ class CombatLoop:
         RuntimeError
             If the loop is not in AWAITING_DECISION state.
         """
-        if self._status in _TERMINAL_STATUSES:
-            raise RuntimeError(
-                f"Combat already ended with status {self._status!r}; "
-                "submit_decision() cannot be called after combat ends."
-            )
         if self._status != CombatStatus.AWAITING_DECISION:
+            if self._status in _TERMINAL_STATUSES:
+                raise RuntimeError(
+                    f"Combat already ended with status {self._status!r}; "
+                    "submit_decision() cannot be called after combat ends."
+                )
             raise RuntimeError(
                 f"Combat is not awaiting a decision (current status: {self._status!r}); "
                 "call run_phase() first."

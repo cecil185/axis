@@ -43,6 +43,21 @@ OwnerState = Literal["Red", "Blue", "Neutral"]
 
 ALL_TERRITORY_IDS: tuple[TerritoryId, ...] = get_args(TerritoryId)
 
+# Territories that start the game as Neutral (ownerless, no units).
+# Chosen for being remote, low-value atolls that create an early expansion race.
+NEUTRAL_TERRITORIES: frozenset[TerritoryId] = frozenset({
+    "clipperton",
+    "pitcairn",
+    "johnston",
+    "tokelau",
+    "nauru",
+})
+
+
+def is_neutral_start(tid: TerritoryId) -> bool:
+    """Return True if the territory begins the game as a Neutral (ownerless) territory."""
+    return tid in NEUTRAL_TERRITORIES
+
 
 class TerritoryInfo(TypedDict):
     """Metadata for a territory: region, display_name, map position (x_frac, y_frac), and ipc_value."""

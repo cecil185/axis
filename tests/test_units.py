@@ -5,6 +5,8 @@ import pytest
 from src.units import (
     get_unit_stats,
     init_game,
+    is_neutral_start,
+    NEUTRAL_TERRITORIES,
     owner_from_units,
     set_units,
     total_units,
@@ -145,37 +147,55 @@ def test_owner_from_units_returns_none_when_equal() -> None:
 
 
 def test_init_game_red_territories_have_correct_stacks() -> None:
+    # Neutral-start territories have no units; only check non-neutral territories.
     for tid in _STARTING_RED_TERRITORIES:
-        red_stack = units(tid, "Red")
-        assert red_stack["infantry"] == 2
-        assert red_stack["tanks"] == 1
-        blue_stack = units(tid, "Blue")
-        assert blue_stack["infantry"] == 0
-        assert blue_stack["tanks"] == 0
+        if is_neutral_start(tid):
+            red_stack = units(tid, "Red")
+            assert red_stack["infantry"] == 0
+            assert red_stack["tanks"] == 0
+        else:
+            red_stack = units(tid, "Red")
+            assert red_stack["infantry"] == 2
+            assert red_stack["tanks"] == 1
+            blue_stack = units(tid, "Blue")
+            assert blue_stack["infantry"] == 0
+            assert blue_stack["tanks"] == 0
 
 
 def test_init_game_blue_territories_have_correct_stacks() -> None:
+    # Neutral-start territories have no units; only check non-neutral territories.
     for tid in _STARTING_BLUE_TERRITORIES:
-        blue_stack = units(tid, "Blue")
-        assert blue_stack["infantry"] == 2
-        assert blue_stack["tanks"] == 1
-        red_stack = units(tid, "Red")
-        assert red_stack["infantry"] == 0
-        assert red_stack["tanks"] == 0
+        if is_neutral_start(tid):
+            blue_stack = units(tid, "Blue")
+            assert blue_stack["infantry"] == 0
+            assert blue_stack["tanks"] == 0
+        else:
+            blue_stack = units(tid, "Blue")
+            assert blue_stack["infantry"] == 2
+            assert blue_stack["tanks"] == 1
+            red_stack = units(tid, "Red")
+            assert red_stack["infantry"] == 0
+            assert red_stack["tanks"] == 0
 
 
 def test_owner_from_units_matches_territory_owner_after_init() -> None:
-    """After init_game, territory.owner() should match owner_from_units() for all territories."""
+    """After init_game, territory.owner() should match expected ownership."""
     for tid in _STARTING_RED_TERRITORIES:
-        assert owner(tid) == "Red", f"{tid} should be Red"
+        if is_neutral_start(tid):
+            assert owner(tid) == "Neutral", f"{tid} should be Neutral"
+        else:
+            assert owner(tid) == "Red", f"{tid} should be Red"
     for tid in _STARTING_BLUE_TERRITORIES:
-        assert owner(tid) == "Blue", f"{tid} should be Blue"
+        if is_neutral_start(tid):
+            assert owner(tid) == "Neutral", f"{tid} should be Neutral"
+        else:
+            assert owner(tid) == "Blue", f"{tid} should be Blue"
 
 
 def test_two_territories_per_team_with_same_counts() -> None:
-    """Both teams have the same unit counts in their starting territories."""
-    red_stacks = [units(tid, "Red") for tid in _STARTING_RED_TERRITORIES]
-    blue_stacks = [units(tid, "Blue") for tid in _STARTING_BLUE_TERRITORIES]
+    """Both teams have the same unit counts in their non-neutral starting territories."""
+    red_stacks = [units(tid, "Red") for tid in _STARTING_RED_TERRITORIES if not is_neutral_start(tid)]
+    blue_stacks = [units(tid, "Blue") for tid in _STARTING_BLUE_TERRITORIES if not is_neutral_start(tid)]
     # All starting stacks for Red should be identical
     assert all(s == red_stacks[0] for s in red_stacks)
     # All starting stacks for Blue should be identical
