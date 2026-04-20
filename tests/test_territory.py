@@ -60,9 +60,10 @@ def test_territory_at_point_returns_territory_when_click_in_marker() -> None:
     assert territory_at_point(map_rect, cx, cy, radius_px=20) == "hawaii"
 
 
-def test_territory_at_point_returns_none_when_far_from_markers() -> None:
-    map_rect = (0, 0, 1000, 500)
-    assert territory_at_point(map_rect, 10, 10, radius_px=18) is None
+def test_territory_at_point_returns_none_when_in_uncovered_ocean() -> None:
+    # (0.20, 0.80) in fractional space falls in no territory polygon (open ocean).
+    map_rect = (0, 0, 1000, 1000)
+    assert territory_at_point(map_rect, 200, 800) is None
 
 
 def test_neighbors_returns_adjacent_territories_symmetric() -> None:
