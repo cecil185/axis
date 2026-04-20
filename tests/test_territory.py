@@ -2,6 +2,7 @@ from src.state import TEAMS
 from src.territory import (
     ALL_TERRITORY_IDS,
     display_name,
+    ipc_value,
     map_position,
     territory_at_point,
     neighbors,
@@ -120,3 +121,34 @@ def test_winner_returns_team_when_owns_all() -> None:
     finally:
         for i, tid in enumerate(ALL_TERRITORY_IDS):
             set_owner(tid, RED if i < 15 else BLUE)
+
+
+def test_ipc_value_strategic_territories_worth_3() -> None:
+    """Strategic territories (japan, hawaii, australia_east, australia_west) are worth 3 IPCs."""
+    assert ipc_value("japan") == 3
+    assert ipc_value("hawaii") == 3
+    assert ipc_value("australia_east") == 3
+    assert ipc_value("australia_west") == 3
+
+
+def test_ipc_value_all_territories_in_range_1_to_3() -> None:
+    """Every territory must have an IPC value of 1, 2, or 3."""
+    for tid in ALL_TERRITORY_IDS:
+        val = ipc_value(tid)
+        assert val in (1, 2, 3), f"{tid} has ipc_value={val}, expected 1–3"
+
+
+def test_ipc_value_remote_atolls_worth_1() -> None:
+    """Remote atolls and minor islands are worth 1 IPC."""
+    assert ipc_value("johnston") == 1
+    assert ipc_value("midway") == 1
+    assert ipc_value("clipperton") == 1
+    assert ipc_value("pitcairn") == 1
+    assert ipc_value("rapa_nui") == 1
+
+
+def test_ipc_value_returned_in_territory_info() -> None:
+    """territory_info dict includes the ipc_value field."""
+    info = territory_info("japan")
+    assert "ipc_value" in info
+    assert info["ipc_value"] == 3
