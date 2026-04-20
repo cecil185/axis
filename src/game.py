@@ -40,7 +40,7 @@ TITLE = "Pacific Map (29 territories)"
 
 # Theme
 BG_COLOR = (28, 32, 38)
-TEAM_COLORS = {"Red": (200, 80, 80), "Blue": (80, 80, 200)}
+TEAM_COLORS = {"Red": (200, 80, 80), "Blue": (80, 80, 200), "Neutral": (150, 150, 150)}
 TEXT_COLOR = (230, 230, 240)
 SIDEBAR_BG = (45, 48, 55)
 SIDEBAR_BORDER = (70, 74, 90)
@@ -53,6 +53,7 @@ SIDEBAR_PAD = 16
 BUTTON_HEIGHT = 44
 FONT_SIZE_SMALL = 26
 FONT_SIZE_BTN = 34
+FONT_SIZE_UNIT_LABEL = 16  # tiny font for per-territory unit count labels on the map
 FPS = 60
 BORDER_RADIUS = 8
 SIDEBAR_TURN_GAP = 20
@@ -157,21 +158,28 @@ def _draw_coord_tooltip(
     mouse_pos: tuple[int, int],
     font: pygame.font.Font,
 ) -> None:
-    """Draw a hover popup: territory name+region when over a marker, else x,y fractions."""
+    """Draw a hover popup: territory name+region+unit counts when over a marker, else x,y fractions."""
     if not map_rect.collidepoint(mouse_pos):
         return
     mx, my, mw, mh = map_rect.x, map_rect.y, map_rect.w, map_rect.h
     px, py = mouse_pos[0], mouse_pos[1]
     tid = territory_at_point((mx, my, mw, mh), px, py, MARKER_RADIUS + 4)
     if tid is not None:
-        red_stack = territory_units(tid, "Red")
-        blue_stack = territory_units(tid, "Blue")
-        red_inf, red_tnk = red_stack.get("infantry", 0), red_stack.get("tanks", 0)
-        blue_inf, blue_tnk = blue_stack.get("infantry", 0), blue_stack.get("tanks", 0)
-        lines = [
-            f"{display_name(tid)} ({region(tid)})",
-            f"Red: {red_inf}inf {red_tnk}tnk  Blue: {blue_inf}inf {blue_tnk}tnk",
-        ]
+        owning_state = owner(tid)
+        lines = [f"{display_name(tid)} ({region(tid)})"]
+        if owning_state == "Neutral":
+            lines.append("Neutral (unclaimed)")
+        else:
+            own_stack = territory_units(tid, owning_state)
+            own_inf = own_stack.get("infantry", 0)
+            own_tnk = own_stack.get("tanks", 0)
+            enemy_team = "Blue" if owning_state == "Red" else "Red"
+            enemy_stack = territory_units(tid, enemy_team)
+            enemy_inf = enemy_stack.get("infantry", 0)
+            enemy_tnk = enemy_stack.get("tanks", 0)
+            lines.append(f"{owning_state}: {own_inf} inf {own_tnk} tnk")
+            if enemy_inf > 0 or enemy_tnk > 0:
+                lines.append(f"{enemy_team}: {enemy_inf} inf {enemy_tnk} tnk")
     else:
         x_frac = (px - mx) / mw
         y_frac = (py - my) / mh
@@ -206,8 +214,13 @@ def _draw_map(
     mouse_pos: tuple[int, int] | None = None,
     selected: TerritoryId | None = None,
     pulse_alpha: int = 255,
+    unit_label_font: pygame.font.Font | None = None,
 ) -> None:
-    """Draw map image and territory markers; pulse yellow outlines on valid attack targets."""
+    """Draw map image and territory markers; pulse yellow outlines on valid attack targets.
+
+    When unit_label_font is provided, renders a small label (e.g. '2i 1t') below each
+    territory marker so unit counts are visible at a glance without hovering.
+    """
     if map_surf is not None:
         screen.blit(map_surf, map_rect.topleft)
     mx, my, mw, mh = map_rect.x, map_rect.y, map_rect.w, map_rect.h
@@ -252,6 +265,25 @@ def _draw_map(
                 HOVER_HIGHLIGHT_WIDTH,
             )
             screen.blit(pulse_surf, (tx - center, ty - center))
+        # Render a small unit count label below the marker when a font is provided
+        if unit_label_font is not None:
+            owning_state = owner(tid)
+            label_color = TEAM_COLORS[owning_state]
+            if owning_state == "Neutral":
+                label_text = "N"
+            else:
+                stack = territory_units(tid, owning_state)
+                inf_count = stack.get("infantry", 0)
+                tnk_count = stack.get("tanks", 0)
+                label_text = f"{inf_count}i {tnk_count}t"
+            label_surf = unit_label_font.render(label_text, True, label_color)
+            # Centered horizontally, just below the marker circle
+            label_x = tx - label_surf.get_width() // 2
+            label_y = ty + MARKER_RADIUS + 2
+            # Dark shadow for readability against the map image
+            shadow_surf = unit_label_font.render(label_text, True, (0, 0, 0))
+            screen.blit(shadow_surf, (label_x + 1, label_y + 1))
+            screen.blit(label_surf, (label_x, label_y))
 
 
 def _show_combat_popup(
@@ -397,6 +429,7 @@ def main() -> None:
     map_surf = _load_map_surface()
     small_font = pygame.font.Font(None, FONT_SIZE_SMALL)
     btn_font = pygame.font.Font(None, FONT_SIZE_BTN)
+    unit_label_font = pygame.font.Font(None, FONT_SIZE_UNIT_LABEL)
 
     def on_combat(target_id: TerritoryId) -> None:
         global _last_combat
@@ -432,7 +465,7 @@ def main() -> None:
         phase = (t_ms % PULSE_PERIOD_MS) / PULSE_PERIOD_MS  # 0.0 to 1.0
         sine_val = (1.0 + math.sin(2 * math.pi * phase - math.pi / 2)) / 2  # 0.0 to 1.0
         pulse_alpha = int(PULSE_ALPHA_MIN + (PULSE_ALPHA_MAX - PULSE_ALPHA_MIN) * sine_val)
-        _draw_map(screen, map_rect, map_surf, mouse_pos, _selected_territory, pulse_alpha)
+        _draw_map(screen, map_rect, map_surf, mouse_pos, _selected_territory, pulse_alpha, unit_label_font)
         _draw_coord_tooltip(screen, map_rect, mouse_pos, small_font)
         _draw_bottom_bar(screen, bottom_bar_rect(), small_font)
         _draw_right_sidebar(screen, sidebar, small_font, btn_font)
