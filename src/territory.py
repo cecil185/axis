@@ -226,14 +226,16 @@ def winner() -> Team | None:
     Return the team that owns all territories, or None if game is not over.
     A team cannot win while any territory is Neutral or held by the opponent.
     """
-    first = owner(ALL_TERRITORY_IDS[0])
+    first: OwnerState = owner(ALL_TERRITORY_IDS[0])
     # Neutral territories prevent any team from winning
-    if first == "Neutral":
+    if first not in ("Red", "Blue"):
         return None
+    # first is now narrowed to Team (Red or Blue)
+    winning_team: Team = first  # type: ignore[assignment]
     for tid in ALL_TERRITORY_IDS[1:]:
-        if owner(tid) != first:
+        if owner(tid) != winning_team:
             return None
-    return first  # type: ignore[return-value]  # first is Team (Red or Blue)
+    return winning_team
 
 
 def is_game_over() -> bool:
