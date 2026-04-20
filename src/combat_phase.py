@@ -38,12 +38,12 @@ class PhaseResult(TypedDict):
 
 
 def _roll_for_stack(stack: UnitCounts, rng: Callable[[], int]) -> list[int]:
-    """Roll one die per unit in the stack; return list of results."""
+    """Roll one die per unit in the stack using a zero-arg rng; return list of results."""
     rolls: list[int] = []
     for unit_type in _REMOVAL_ORDER:
         count = stack.get(unit_type, 0)
         for _ in range(count):
-            rolls.append(rng(1, 6) if _takes_two_args(rng) else rng())
+            rolls.append(rng())
     return rolls
 
 
@@ -117,8 +117,8 @@ def combat_phase(
         _rng = rng
 
     # Roll dice for both sides.
-    att_rolls = _roll_for_stack(attackers, lambda: _rng())
-    def_rolls = _roll_for_stack(defenders, lambda: _rng())
+    att_rolls = _roll_for_stack(attackers, _rng)
+    def_rolls = _roll_for_stack(defenders, _rng)
 
     # Count hits (roll >= HIT_THRESHOLD).
     att_hits = sum(1 for r in att_rolls if r >= HIT_THRESHOLD)
