@@ -2,7 +2,7 @@
 
 import pytest
 from src.territory import ALL_TERRITORY_IDS, set_owner
-from src.state import TEAMS
+from src.state import TEAMS, current_team, end_turn
 from src.economy import collect_income, get_balance, reset_balances
 
 RED, BLUE = TEAMS[0], TEAMS[1]
@@ -13,6 +13,9 @@ def setup_function() -> None:
     reset_balances()
     for i, tid in enumerate(ALL_TERRITORY_IDS):
         set_owner(tid, RED if i < 15 else BLUE)
+    # Ensure turn state is Red (may have drifted due to end_turn calls in other tests)
+    from src import state as _state
+    _state._current_team = RED
 
 
 # ---------------------------------------------------------------------------
@@ -128,3 +131,36 @@ def test_reset_balances_clears_both_teams() -> None:
     reset_balances()
     assert get_balance(RED) == 0
     assert get_balance(BLUE) == 0
+
+
+# ---------------------------------------------------------------------------
+# turn integration: end_turn() triggers income collection
+# ---------------------------------------------------------------------------
+
+
+def test_end_turn_collects_income_for_next_team() -> None:
+    """end_turn() should automatically collect income for the team whose turn begins."""
+    from src.territory import ipc_value
+    assert current_team() == RED
+    blue_income = sum(ipc_value(tid) for tid in ALL_TERRITORY_IDS[15:])
+    end_turn()  # flips to Blue; Blue's turn starts → Blue collects income
+    assert current_team() == BLUE
+    assert get_balance(BLUE) == blue_income
+    assert get_balance(RED) == 0  # Red has not yet collected
+    end_turn()  # restore to Red for subsequent tests
+
+
+def test_end_turn_income_accumulates_over_multiple_rounds() -> None:
+    """Each complete round (Red turn + Blue turn) grows both balances."""
+    from src.territory import ipc_value
+    red_income = sum(ipc_value(tid) for tid in ALL_TERRITORY_IDS[:15])
+    blue_income = sum(ipc_value(tid) for tid in ALL_TERRITORY_IDS[15:])
+    assert current_team() == RED
+    # Round 1
+    end_turn()   # Blue collects
+    end_turn()   # Red collects
+    # Round 2
+    end_turn()   # Blue collects again
+    end_turn()   # Red collects again
+    assert get_balance(RED) == red_income * 2
+    assert get_balance(BLUE) == blue_income * 2
