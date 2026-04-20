@@ -147,3 +147,25 @@ def test_unit_icon_data_all_territories() -> None:
         assert isinstance(data["tanks"], int)
         assert data["infantry"] >= 0
         assert data["tanks"] >= 0
+
+
+def test_unit_icon_data_zero_infantry_only() -> None:
+    """When a territory has only tanks, infantry count is 0 (suppresses infantry icon)."""
+    tid = _STARTING_RED_TERRITORIES[0]
+    set_units(tid, "Red", {"infantry": 0, "tanks": 1})
+    data = _unit_icon_data(tid)
+    assert data["infantry"] == 0
+    assert data["tanks"] == 1
+    # Consuming code: only draw infantry icon when count > 0
+    assert not data["infantry"]
+
+
+def test_unit_icon_data_zero_tanks_only() -> None:
+    """When a territory has only infantry, tanks count is 0 (suppresses tank icon)."""
+    tid = _STARTING_RED_TERRITORIES[0]
+    set_units(tid, "Red", {"infantry": 3, "tanks": 0})
+    data = _unit_icon_data(tid)
+    assert data["infantry"] == 3
+    assert data["tanks"] == 0
+    # Consuming code: only draw tank icon when count > 0
+    assert not data["tanks"]

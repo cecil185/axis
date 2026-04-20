@@ -12,11 +12,13 @@ API:
   set_units(tid, counts) -> set unit counts for territory (keyed by team)
   owner_from_units(tid) -> Team | None (None if no units)
   init_game() -> place starting units on all territories
+  NEUTRAL_TERRITORIES -> frozenset of territory IDs that start the game Neutral
+  is_neutral_start(tid) -> bool
 """
 
 from typing import Literal, TypedDict
 
-from .territory import ALL_TERRITORY_IDS, NEUTRAL_TERRITORIES, Team, TerritoryId, is_neutral_start
+from .territory import ALL_TERRITORY_IDS, NEUTRAL_TERRITORIES, Team, TerritoryId, is_neutral_start, set_neutral
 
 # --- Unit types ---
 
@@ -106,7 +108,6 @@ def init_game() -> None:
     NEUTRAL_TERRITORIES are skipped: they start ownerless with no units,
     and territory._owners is updated to 'Neutral' for each.
     """
-    from .territory import set_neutral  # noqa: PLC0415
     empty: UnitCounts = {"infantry": 0, "tanks": 0}
     for tid in _STARTING_RED_TERRITORIES:
         if is_neutral_start(tid):

@@ -233,7 +233,6 @@ def _unit_icon_data(tid: TerritoryId) -> dict[str, object]:
         {"team": str, "infantry": int, "tanks": int}
     For Neutral territories, infantry and tanks are 0.
     """
-    from .territory import owner  # noqa: PLC0415 (already imported at module level, fine)
     owning_state = owner(tid)
     if owning_state == "Neutral":
         return {"team": "Neutral", "infantry": 0, "tanks": 0}
@@ -364,17 +363,20 @@ def _draw_map(
                 HOVER_HIGHLIGHT_WIDTH,
             )
             screen.blit(pulse_surf, (tx - center, ty - center))
-        # Draw soldier and tank icons positioned relative to the territory circle
+        # Draw soldier and tank icons positioned relative to the territory circle.
+        # Only draw each icon type when that unit type is actually present (count > 0).
         icon_data = _unit_icon_data(tid)
         if icon_data["team"] != "Neutral":
             icon_color = TEAM_COLORS[icon_data["team"]]  # type: ignore[index]
             icon_positions = _icon_positions_for_territory(tx, ty, MARKER_RADIUS)
-            # Infantry icon (lower-left of circle)
-            inf_x, inf_y = icon_positions["infantry"]
-            _draw_infantry_icon(screen, inf_x, inf_y, icon_color, _ICON_SIZE)
-            # Tank icon (lower-right of circle)
-            tnk_x, tnk_y = icon_positions["tanks"]
-            _draw_tank_icon(screen, tnk_x, tnk_y, icon_color, _ICON_SIZE)
+            # Infantry icon (lower-left of circle) — only when infantry are present
+            if icon_data["infantry"]:  # type: ignore[truthy-bool]
+                inf_x, inf_y = icon_positions["infantry"]
+                _draw_infantry_icon(screen, inf_x, inf_y, icon_color, _ICON_SIZE)
+            # Tank icon (lower-right of circle) — only when tanks are present
+            if icon_data["tanks"]:  # type: ignore[truthy-bool]
+                tnk_x, tnk_y = icon_positions["tanks"]
+                _draw_tank_icon(screen, tnk_x, tnk_y, icon_color, _ICON_SIZE)
         # Render a small unit count label below the marker when a font is provided
         if unit_label_font is not None:
             owning_state = owner(tid)
