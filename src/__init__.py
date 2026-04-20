@@ -30,6 +30,7 @@ from .units import (
     UnitCounts,
     UnitStats,
 )
+from .economy import collect_income, get_balance, reset_balances
 
 __all__ = [
     "ALL_TERRITORY_IDS",
@@ -68,4 +69,7 @@ __all__ = [
     "UnitType",
     "UnitCounts",
     "UnitStats",
+    "collect_income",
+    "get_balance",
+    "reset_balances",
 ]
