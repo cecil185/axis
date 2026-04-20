@@ -49,16 +49,17 @@ def _infantry_reachable(tid: TerritoryId, team: Team) -> set[TerritoryId]:
 def _tank_reachable(tid: TerritoryId, team: Team) -> set[TerritoryId]:
     """
     Tanks: BFS up to depth 2.
-    - Friendly territory at hop N: add to result, continue BFS through it.
-    - Enemy territory at hop N: add to result, do NOT expand through it.
+    - Friendly territory at hop N: add to result, continue expanding from it (if hop < 2).
+    - Non-friendly territory (enemy or neutral) at hop N: add to result, stop — do not expand.
+
+    We track expanded friendly territories to avoid processing the same waypoint twice.
+    Non-friendly territories are never expanded so they only need to be added to result once.
     """
     result: set[TerritoryId] = set()
-    # Queue entries: (territory_id, hops_remaining)
-    # We track visited friendly territories to avoid re-expanding them.
-    # Enemy territories are added to result but never expanded (stop there).
-    visited_friendly: set[TerritoryId] = {tid}
+    # expanded: friendly territories we have already expanded outward from (to avoid cycles).
+    expanded: set[TerritoryId] = {tid}
 
-    # Initial frontier: direct neighbors of source
+    # Frontier entries: (territory_id, hop_count)
     frontier: list[tuple[TerritoryId, int]] = [
         (n, 1) for n in neighbors(tid)
     ]
@@ -67,17 +68,16 @@ def _tank_reachable(tid: TerritoryId, team: Team) -> set[TerritoryId]:
         current, hop = frontier.pop()
 
         if owner(current) == team:
-            # Friendly territory
-            if current not in result:
-                result.add(current)
-            if hop < 2 and current not in visited_friendly:
-                visited_friendly.add(current)
+            # Friendly: reachable destination and eligible waypoint
+            result.add(current)
+            if hop < 2 and current not in expanded:
+                expanded.add(current)
                 for n in neighbors(current):
-                    if n != tid and n not in visited_friendly:
+                    if n not in expanded:
                         frontier.append((n, hop + 1))
         else:
-            # Enemy territory: reachable, but movement stops here
+            # Non-friendly: reachable destination, movement stops here
             result.add(current)
-            # Do not expand through enemy territory
+            # Do not expand beyond non-friendly territory
 
     return result
