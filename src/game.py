@@ -207,6 +207,105 @@ def _draw_coord_tooltip(
         y_off += lbl.get_height() + line_gap
 
 
+def _icon_positions_for_territory(
+    cx: int, cy: int, radius: int
+) -> dict[str, tuple[int, int]]:
+    """Return pixel positions for infantry and tank icons relative to territory circle center.
+
+    Infantry is placed to the lower-left of the circle; tank to the lower-right.
+    Offsets scale with the marker radius so icons clear the circle at any size.
+
+    Returns:
+        {"infantry": (x, y), "tanks": (x, y)}
+    """
+    offset_x = radius + 4
+    offset_y = radius + 4
+    return {
+        "infantry": (cx - offset_x, cy + offset_y),
+        "tanks": (cx + offset_x, cy + offset_y),
+    }
+
+
+def _unit_icon_data(tid: TerritoryId) -> dict[str, object]:
+    """Return the icon data (team, unit counts) for a territory.
+
+    Returns:
+        {"team": str, "infantry": int, "tanks": int}
+    For Neutral territories, infantry and tanks are 0.
+    """
+    from .territory import owner  # noqa: PLC0415 (already imported at module level, fine)
+    owning_state = owner(tid)
+    if owning_state == "Neutral":
+        return {"team": "Neutral", "infantry": 0, "tanks": 0}
+    stack = territory_units(tid, owning_state)  # type: ignore[arg-type]
+    return {
+        "team": owning_state,
+        "infantry": stack.get("infantry", 0),
+        "tanks": stack.get("tanks", 0),
+    }
+
+
+# Icon rendering sizes relative to MARKER_RADIUS
+_ICON_SIZE = 5  # pixel radius/half-width of each icon glyph
+
+
+def _draw_infantry_icon(
+    screen: pygame.Surface,
+    x: int,
+    y: int,
+    color: tuple[int, int, int],
+    size: int = _ICON_SIZE,
+) -> None:
+    """Draw a minimal stick-soldier infantry icon centered at (x, y).
+
+    Shape: circular head atop a triangular torso (helmet silhouette).
+    """
+    head_r = max(1, size // 2)
+    # Head circle
+    pygame.draw.circle(screen, color, (x, y - size // 2), head_r)
+    # Body: small downward triangle
+    half = max(1, size // 2)
+    body_top = y - size // 2 + head_r
+    pts = [
+        (x - half, body_top + size),
+        (x + half, body_top + size),
+        (x, body_top),
+    ]
+    pygame.draw.polygon(screen, color, pts)
+
+
+def _draw_tank_icon(
+    screen: pygame.Surface,
+    x: int,
+    y: int,
+    color: tuple[int, int, int],
+    size: int = _ICON_SIZE,
+) -> None:
+    """Draw a minimal tank icon centered at (x, y).
+
+    Shape: wide rectangular hull with a small gun barrel protruding to the right.
+    """
+    half_w = max(2, size)
+    half_h = max(1, size // 2)
+    # Hull rectangle
+    hull = pygame.Rect(x - half_w, y - half_h, half_w * 2, half_h * 2)
+    pygame.draw.rect(screen, color, hull, border_radius=1)
+    # Turret: smaller square on top-center
+    turret_size = max(1, size // 2)
+    turret_rect = pygame.Rect(
+        x - turret_size // 2,
+        y - half_h - turret_size,
+        turret_size,
+        turret_size,
+    )
+    pygame.draw.rect(screen, color, turret_rect)
+    # Gun barrel: short horizontal line to the right of turret
+    barrel_x_start = x + turret_size // 2
+    barrel_y = y - half_h - turret_size // 2
+    barrel_x_end = barrel_x_start + max(2, size // 2)
+    pygame.draw.line(screen, color, (barrel_x_start, barrel_y), (barrel_x_end, barrel_y), 1)
+
+
 def _draw_map(
     screen: pygame.Surface,
     map_rect: pygame.Rect,
@@ -265,6 +364,17 @@ def _draw_map(
                 HOVER_HIGHLIGHT_WIDTH,
             )
             screen.blit(pulse_surf, (tx - center, ty - center))
+        # Draw soldier and tank icons positioned relative to the territory circle
+        icon_data = _unit_icon_data(tid)
+        if icon_data["team"] != "Neutral":
+            icon_color = TEAM_COLORS[icon_data["team"]]  # type: ignore[index]
+            icon_positions = _icon_positions_for_territory(tx, ty, MARKER_RADIUS)
+            # Infantry icon (lower-left of circle)
+            inf_x, inf_y = icon_positions["infantry"]
+            _draw_infantry_icon(screen, inf_x, inf_y, icon_color, _ICON_SIZE)
+            # Tank icon (lower-right of circle)
+            tnk_x, tnk_y = icon_positions["tanks"]
+            _draw_tank_icon(screen, tnk_x, tnk_y, icon_color, _ICON_SIZE)
         # Render a small unit count label below the marker when a font is provided
         if unit_label_font is not None:
             owning_state = owner(tid)
