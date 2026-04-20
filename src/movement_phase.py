@@ -38,7 +38,7 @@ reset_movement_phase() -> None
 
 from typing import Literal
 
-from .territory import TerritoryId, owner
+from .territory import Team, TerritoryId, owner
 from .units import units as get_units, set_units, UnitType
 
 # Phase states for the turn structure.
@@ -83,7 +83,7 @@ def reset_movement_phase() -> None:
 def move_unit(
     from_tid: TerritoryId,
     to_tid: TerritoryId,
-    team: Literal["Red", "Blue"],
+    team: Team,
     unit_type: UnitType,
     count: int,
 ) -> None:
