@@ -535,9 +535,18 @@ def _handle_events(
                     _begin_movement_phase()
                 continue
 
+            # Economy panel click (CEC-16): consume purchase / placement-row clicks.
+            if _handle_economy_click(event.pos, sidebar):
+                continue
+
             r = map_rect
             mx, my, mw, mh = r.x, r.y, r.w, r.h
             tid = territory_at_point((mx, my, mw, mh), event.pos[0], event.pos[1], MARKER_RADIUS + 4)
+
+            # Placement (NCM) map click: place selected unit on owned territory.
+            if _ui_phase == "ncm" and _placement_unit is not None:
+                _handle_placement_map_click(tid)
+                continue
 
             if _ui_phase == "movement":
                 _handle_movement_click(tid)
