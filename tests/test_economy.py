@@ -1,9 +1,16 @@
-"""Tests for IPC economy: balance state and income collection."""
+"""Tests for IPC economy: balance state, income collection, and unit purchasing."""
 
 import pytest
 from src.territory import ALL_TERRITORY_IDS, set_owner
 from src.state import TEAMS, current_team, end_turn
-from src.economy import collect_income, get_balance, reset_balances
+from src.economy import (
+    UNIT_COSTS,
+    buy_unit,
+    collect_income,
+    get_balance,
+    get_pending,
+    reset_balances,
+)
 
 RED, BLUE = TEAMS[0], TEAMS[1]
 
@@ -164,3 +171,96 @@ def test_end_turn_income_accumulates_over_multiple_rounds() -> None:
     end_turn()   # Red collects again
     assert get_balance(RED) == red_income * 2
     assert get_balance(BLUE) == blue_income * 2
+
+
+# ---------------------------------------------------------------------------
+# Unit purchasing: buy_unit / get_pending / UNIT_COSTS
+# ---------------------------------------------------------------------------
+
+
+def test_unit_costs_match_spec() -> None:
+    """Infantry costs 3 IPCs, tanks cost 6 IPCs."""
+    assert UNIT_COSTS["infantry"] == 3
+    assert UNIT_COSTS["tanks"] == 6
+
+
+def test_initial_pending_queue_is_empty() -> None:
+    assert get_pending(RED) == {"infantry": 0, "tanks": 0}
+    assert get_pending(BLUE) == {"infantry": 0, "tanks": 0}
+
+
+def test_buy_infantry_deducts_cost_and_queues() -> None:
+    collect_income(RED)
+    starting = get_balance(RED)
+    buy_unit(RED, "infantry")
+    assert get_balance(RED) == starting - 3
+    assert get_pending(RED) == {"infantry": 1, "tanks": 0}
+
+
+def test_buy_tank_deducts_cost_and_queues() -> None:
+    collect_income(RED)
+    starting = get_balance(RED)
+    buy_unit(RED, "tanks")
+    assert get_balance(RED) == starting - 6
+    assert get_pending(RED) == {"infantry": 0, "tanks": 1}
+
+
+def test_buy_unit_appends_multiple_to_queue() -> None:
+    collect_income(RED)
+    buy_unit(RED, "infantry")
+    buy_unit(RED, "infantry")
+    buy_unit(RED, "tanks")
+    assert get_pending(RED) == {"infantry": 2, "tanks": 1}
+
+
+def test_buy_unit_does_not_affect_other_team_balance() -> None:
+    collect_income(RED)
+    collect_income(BLUE)
+    blue_balance = get_balance(BLUE)
+    buy_unit(RED, "infantry")
+    assert get_balance(BLUE) == blue_balance
+    assert get_pending(BLUE) == {"infantry": 0, "tanks": 0}
+
+
+def test_buy_unit_raises_when_insufficient_balance() -> None:
+    """Red has 0 IPCs at start; cannot afford anything."""
+    assert get_balance(RED) == 0
+    with pytest.raises(ValueError):
+        buy_unit(RED, "infantry")
+
+
+def test_buy_unit_raises_when_balance_just_below_cost() -> None:
+    """Spend down to 2 IPCs, then fail to buy infantry (cost 3)."""
+    collect_income(RED)
+    # Spend down close to 0
+    while get_balance(RED) >= 3:
+        buy_unit(RED, "infantry")
+    # Now balance is 0, 1, or 2 — none of which afford infantry
+    assert get_balance(RED) < 3
+    with pytest.raises(ValueError):
+        buy_unit(RED, "infantry")
+
+
+def test_buy_unit_failure_does_not_modify_balance_or_queue() -> None:
+    assert get_balance(RED) == 0
+    with pytest.raises(ValueError):
+        buy_unit(RED, "tanks")
+    assert get_balance(RED) == 0
+    assert get_pending(RED) == {"infantry": 0, "tanks": 0}
+
+
+def test_get_pending_returns_copy() -> None:
+    """Mutating the returned dict must not affect internal queue state."""
+    collect_income(RED)
+    buy_unit(RED, "infantry")
+    snapshot = get_pending(RED)
+    snapshot["infantry"] = 999
+    assert get_pending(RED)["infantry"] == 1
+
+
+def test_reset_balances_clears_pending_queue() -> None:
+    collect_income(RED)
+    buy_unit(RED, "infantry")
+    reset_balances()
+    assert get_pending(RED) == {"infantry": 0, "tanks": 0}
+    assert get_pending(BLUE) == {"infantry": 0, "tanks": 0}
