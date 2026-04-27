@@ -1,3 +1,21 @@
 {
-  "workbench.colorTheme": "Solarized Dark"
+  "workbench.colorTheme": "Solarized Dark",
+  "workbench.colorCustomizations": {
+    "terminal.background":                  "#446876", // Terminal background
+    "terminal.foreground":                  "#040404",
+    "terminal.border":                      "#ff2200",
+    "terminal.ansiRed":                     "#c0392b",
+    "terminal.ansiGreen":                   "#27ae60",
+    "terminal.ansiYellow":                  "#d4a017",
+    "terminal.ansiBlue":                    "#2980b9",
+    "terminal.ansiBrightBlack":             "#7a6a50",
+    "tab.border":                           "#ff2200",
+    "editorGroupHeader.tabsBorder":         "#ff2200",
+    "editorGroup.border":                   "#ff2200",
+    "statusBar.background":                 "#2c2620",
+    "statusBar.foreground":                 "#e8c870",
+    "statusBar.border":                     "#ff2200",
+    "panel.background":                     "#755000",
+    "panel.border":                         "#ff2200"
+  }
 }
