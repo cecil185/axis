@@ -24,11 +24,36 @@ from .territory import (
     TerritoryId,
     winner,
 )
-from .state import current_team
+from .state import current_team, end_turn
 from .valid_actions import can_skip, valid_attack_targets
 from .actions import attack, set_combat_hook, skip
-from .combat import roll_combat, resolve_combat, resolve_combat_with_units
-from .units import units as territory_units
+from .combat_loop import CombatLoop, CombatState, CombatStatus
+from .units import ALL_UNIT_TYPES, UnitType, set_units, units as territory_units, total_units
+from .economy import (
+    UNIT_COSTS,
+    buy_unit,
+    clear_pending,
+    get_balance,
+    get_pending,
+    place_unit,
+)
+from .territory import ipc_value as territory_ipc_value
+from .movement import reachable_territories
+from .movement_phase import (
+    _moved_from as _combat_moved_from,
+    end_movement_phase,
+    move_unit,
+    pending_battles,
+    reset_movement_phase,
+    resolve_next_battle,
+    skip_all_battles,
+)
+from .ncm_phase import (
+    end_ncm_phase,
+    ncm_move_unit,
+    ncm_moved_from,
+    reset_ncm_phase,
+)
 
 # Layout: map on top, bottom bar underneath (left area) | right sidebar
 MARGIN = 16
@@ -65,12 +90,31 @@ SIDEBAR_LINE_GAP = 2
 SIDEBAR_LINE_WIDTH = 2
 
 # Last combat result for UI:
-# (attacker_team, attacker_roll, defender_roll, winner, defending_territory_id, attacking_territory_id | None)
-# winner is "attacker" | "defender" from resolve_combat
-_last_combat: tuple[str, int, int, str, TerritoryId, TerritoryId | None] | None = None
+# (attacker_team, combat_state, defending_territory_id, attacking_territory_id | None)
+# combat_state is the terminal CombatState snapshot from CombatLoop.
+_last_combat: tuple[str, CombatState, TerritoryId, TerritoryId | None] | None = None
 
 # Currently selected territory to attack FROM (green outline); None if none selected
 _selected_territory: TerritoryId | None = None
+
+# UI phase (CEC-12, CEC-18):
+#   "movement" -> combat-movement: select an owned territory and click a
+#                  reachable destination to move all its units. "Done Moving"
+#                  advances to "main".
+#   "main"     -> combat / attack flow.
+#   "ncm"      -> non-combat movement (CEC-18).
+# Toggled via the right-side sidebar button.
+_ui_phase: str = "movement"
+
+# Economy sub-phase (CEC-16) progressed by the End Turn button:
+#   "purchase"  -> buy units (sidebar buttons); End Turn -> "action"
+#   "action"    -> attack / ncm flow as before; End Turn -> "placement"
+#   "placement" -> place pending units on owned territories; End Turn -> end
+#                  turn, flush pending queue, advance to next team -> "purchase"
+_eco_phase: str = "purchase"
+
+# Currently selected pending unit type for placement (None = no selection).
+_placement_unit: "UnitType | None" = None
 
 # Active tooltip panel managed by pygame-gui (None when no territory hovered)
 _tooltip_panel: "pygame_gui.elements.UIPanel | None" = None
@@ -91,6 +135,199 @@ def _map_rect() -> pygame.Rect:
     return pygame.Rect(0, 0, MAP_WIDTH, MAP_HEIGHT)
 
 
+def _movement_reachable(tid: TerritoryId) -> set[TerritoryId]:
+    """Return all territories reachable from `tid` during the combat-movement phase.
+
+    Combines reachable sets across the unit types present at `tid`. Combat
+    movement may enter friendly, enemy, or neutral territories — the full
+    result is returned without owner filtering.
+    """
+    team = current_team()
+    if owner(tid) != team:
+        return set()
+    stack = territory_units(tid, team)
+    has_tanks = stack.get("tanks", 0) > 0
+    has_inf = stack.get("infantry", 0) > 0
+    reach: set[TerritoryId] = set()
+    if has_tanks:
+        reach |= reachable_territories(tid, team, "tanks")
+    if has_inf:
+        reach |= reachable_territories(tid, team, "infantry")
+    return reach
+
+
+def _handle_movement_click(tid: TerritoryId | None) -> None:
+    """Click handler for the combat-movement phase (CEC-12).
+
+    - tid is None (clicked empty space) -> deselect.
+    - tid is the currently selected territory -> deselect (toggle).
+    - tid is owned by current team with units -> select.
+    - tid is in the reachable set of the current selection -> move all units
+      from the selection to tid via move_unit().
+    - Otherwise -> deselect.
+    """
+    global _selected_territory
+    if tid is None:
+        _selected_territory = None
+        return
+    if tid == _selected_territory:
+        _selected_territory = None
+        return
+    team = current_team()
+    if (
+        _selected_territory is not None
+        and tid in _movement_reachable(_selected_territory)
+    ):
+        src = _selected_territory
+        stack = territory_units(src, team)
+        inf = stack.get("infantry", 0)
+        tnk = stack.get("tanks", 0)
+        try:
+            if inf > 0:
+                move_unit(src, tid, team, "infantry", inf)
+            if tnk > 0:
+                move_unit(src, tid, team, "tanks", tnk)
+        except ValueError as e:
+            logging.warning("Invalid move ignored: %s", e)
+        _selected_territory = None
+        return
+    if owner(tid) == team and total_units(tid, team) > 0:
+        _selected_territory = tid
+        return
+    _selected_territory = None
+
+
+def _advance_movement_to_combat() -> None:
+    """End combat-movement and switch the UI to the combat (main) flow."""
+    global _ui_phase, _selected_territory
+    end_movement_phase()
+    _ui_phase = "main"
+    _selected_territory = None
+
+
+def _begin_movement_phase() -> None:
+    """Reset combat-movement state for a fresh turn (CEC-12)."""
+    global _ui_phase, _selected_territory
+    reset_movement_phase()
+    _ui_phase = "movement"
+    _selected_territory = None
+
+
+
+
+# --- Non-Combat Movement helpers (CEC-18) ---------------------------------
+# NCM runs after the combat phase. Destinations must be friendly-owned (NCM
+# may never start a battle); territories that already moved during the combat-
+# movement phase this turn are also locked from NCM.
+
+
+def _ncm_friendly_destinations(tid: TerritoryId) -> set[TerritoryId]:
+    """Return friendly-owned NCM destinations reachable from `tid`.
+
+    Range rules match combat movement (infantry 1, tanks 2). When the source
+    has both unit types, both reach sets are unioned. The result is filtered
+    to territories owned by the current team — NCM may never enter enemy or
+    neutral territory.
+    """
+    team = current_team()
+    if owner(tid) != team:
+        return set()
+    stack = territory_units(tid, team)
+    has_tanks = stack.get("tanks", 0) > 0
+    has_inf = stack.get("infantry", 0) > 0
+    reach: set[TerritoryId] = set()
+    if has_tanks:
+        reach |= reachable_territories(tid, team, "tanks")
+    if has_inf:
+        reach |= reachable_territories(tid, team, "infantry")
+    return {t for t in reach if owner(t) == team}
+
+
+def _ncm_selectable_sources() -> set[TerritoryId]:
+    """Return owned territories that may move FROM during NCM.
+
+    Selectable iff owned by the current team, has at least one unit, and has
+    not already been moved-from this turn (combat movement OR NCM).
+    """
+    team = current_team()
+    locked = _combat_moved_from | ncm_moved_from()
+    return {
+        tid for tid in ALL_TERRITORY_IDS
+        if owner(tid) == team
+        and total_units(tid, team) > 0
+        and tid not in locked
+    }
+
+
+def _handle_ncm_click(tid: TerritoryId | None) -> None:
+    """Click handler for the Non-Combat Movement phase (CEC-18).
+
+    - tid is None or a non-friendly territory -> deselect.
+    - tid is the currently selected source -> deselect (toggle).
+    - tid is a friendly destination of the current selection -> move ALL
+      units (both infantry and tanks) from the source to tid.
+    - Otherwise, if tid is a still-selectable owned territory -> select it.
+    """
+    global _selected_territory
+    team = current_team()
+
+    if tid is None:
+        _selected_territory = None
+        return
+    if tid == _selected_territory:
+        _selected_territory = None
+        return
+
+    if _selected_territory is not None:
+        destinations = _ncm_friendly_destinations(_selected_territory)
+        if tid in destinations:
+            src = _selected_territory
+            stack = territory_units(src, team)
+            inf = stack.get("infantry", 0)
+            tnk = stack.get("tanks", 0)
+            try:
+                if inf > 0:
+                    ncm_move_unit(src, tid, team, "infantry", inf)
+                    if tnk > 0:
+                        from_stack = territory_units(src, team)
+                        to_stack = territory_units(tid, team)
+                        new_from = dict(from_stack)
+                        new_from["tanks"] = from_stack.get("tanks", 0) - tnk
+                        new_to = dict(to_stack)
+                        new_to["tanks"] = to_stack.get("tanks", 0) + tnk
+                        set_units(src, team, new_from)
+                        set_units(tid, team, new_to)
+                elif tnk > 0:
+                    ncm_move_unit(src, tid, team, "tanks", tnk)
+            except ValueError as e:
+                logging.warning("Invalid NCM move ignored: %s", e)
+            _selected_territory = None
+            return
+
+    if tid in _ncm_selectable_sources():
+        _selected_territory = tid
+    else:
+        _selected_territory = None
+
+
+def _begin_ncm_phase() -> None:
+    """Enter the Non-Combat Movement phase from the combat (main) phase."""
+    global _ui_phase, _selected_territory
+    reset_ncm_phase()
+    _ui_phase = "ncm"
+    _selected_territory = None
+
+
+def _advance_ncm_to_end_turn() -> None:
+    """Finalise NCM, advance the turn, reset to movement phase for next team."""
+    global _ui_phase, _selected_territory
+    end_ncm_phase()
+    end_turn()
+    reset_ncm_phase()
+    reset_movement_phase()
+    _ui_phase = "movement"
+    _selected_territory = None
+
 def bottom_bar_rect() -> pygame.Rect:
     return pygame.Rect(0, MAP_HEIGHT, MAP_WIDTH, BOTTOM_BAR_HEIGHT)
 
@@ -104,6 +341,103 @@ def end_turn_button_rect(sidebar: pygame.Rect | None = None) -> pygame.Rect:
     return pygame.Rect(
         s.x + SIDEBAR_PAD,
         HEIGHT - MARGIN - BUTTON_HEIGHT,
+        SIDEBAR_RIGHT_WIDTH - 2 * SIDEBAR_PAD,
+        BUTTON_HEIGHT,
+    )
+
+
+# --- Economy UI rect helpers (CEC-16) -------------------------------------
+ECO_ROW_HEIGHT = 32
+ECO_PANEL_HEIGHT = 32 + ECO_ROW_HEIGHT * 2 + 12  # header + 2 unit rows + padding
+
+
+def economy_panel_rect(sidebar: pygame.Rect | None = None) -> pygame.Rect:
+    """Rect of the economy purchase / placement panel inside the sidebar.
+
+    Positioned just above the battle-queue / End Turn button stack so it does
+    not overlap with the multi-battle UI (CEC-17).
+    """
+    s = sidebar if sidebar is not None else right_sidebar_rect()
+    end_btn = end_turn_button_rect(s)
+    panel_bottom = end_btn.y - 12 - 2 * (BUTTON_HEIGHT + 8)
+    return pygame.Rect(
+        s.x + SIDEBAR_PAD,
+        panel_bottom - ECO_PANEL_HEIGHT,
+        SIDEBAR_RIGHT_WIDTH - 2 * SIDEBAR_PAD,
+        ECO_PANEL_HEIGHT,
+    )
+
+
+def unit_row_rect(
+    unit_type: UnitType, sidebar: pygame.Rect | None = None
+) -> pygame.Rect:
+    """Rect of a single unit-type row inside the economy panel."""
+    panel = economy_panel_rect(sidebar)
+    idx = ALL_UNIT_TYPES.index(unit_type)
+    return pygame.Rect(
+        panel.x + 4,
+        panel.y + 32 + idx * ECO_ROW_HEIGHT,
+        panel.width - 8,
+        ECO_ROW_HEIGHT - 4,
+    )
+
+
+def income_for(team) -> int:
+    """Sum of ipc_value over territories currently owned by *team*."""
+    return sum(territory_ipc_value(tid) for tid in ALL_TERRITORY_IDS if owner(tid) == team)
+
+
+def territory_count(team) -> int:
+    """Number of territories owned by *team*."""
+    return sum(1 for tid in ALL_TERRITORY_IDS if owner(tid) == team)
+
+
+# --- Multi-battle UI rect helpers (CEC-17) --------------------------------
+# When the pending-battle queue is non-empty (battles registered during the
+# movement phase), the sidebar shows a counter ("N battles remaining") and
+# two stacked buttons: "Next Battle" (resolve the next one) and "Skip All"
+# (discard the rest of the queue without rolling). Buttons sit just above
+# the End Turn button.
+
+BATTLE_BUTTON_GAP = 8
+
+
+def battle_queue_label_text(count: int | None = None) -> str:
+    """Return the sidebar label for the pending-battle counter.
+
+    When `count` is None, queries `pending_battles()` for the live count.
+    Returns an empty string when no battles are pending.
+    Pluralises: "1 battle remaining" vs. "N battles remaining".
+    """
+    if count is None:
+        count = len(pending_battles())
+    if count <= 0:
+        return ""
+    noun = "battle" if count == 1 else "battles"
+    return f"{count} {noun} remaining"
+
+
+def next_battle_button_rect(sidebar: pygame.Rect | None = None) -> pygame.Rect:
+    """Rect of the 'Next Battle' button, two rows above the End Turn button."""
+    s = sidebar if sidebar is not None else right_sidebar_rect()
+    end_btn = end_turn_button_rect(s)
+    skip_top = end_btn.y - BATTLE_BUTTON_GAP - BUTTON_HEIGHT
+    next_top = skip_top - BATTLE_BUTTON_GAP - BUTTON_HEIGHT
+    return pygame.Rect(
+        s.x + SIDEBAR_PAD,
+        next_top,
+        SIDEBAR_RIGHT_WIDTH - 2 * SIDEBAR_PAD,
+        BUTTON_HEIGHT,
+    )
+
+
+def skip_all_battles_button_rect(sidebar: pygame.Rect | None = None) -> pygame.Rect:
+    """Rect of the 'Skip All' button, sitting directly above the End Turn button."""
+    s = sidebar if sidebar is not None else right_sidebar_rect()
+    end_btn = end_turn_button_rect(s)
+    return pygame.Rect(
+        s.x + SIDEBAR_PAD,
+        end_btn.y - BATTLE_BUTTON_GAP - BUTTON_HEIGHT,
         SIDEBAR_RIGHT_WIDTH - 2 * SIDEBAR_PAD,
         BUTTON_HEIGHT,
     )
@@ -125,6 +459,7 @@ def _handle_events(
     map_rect: pygame.Rect,
     ui_manager: "pygame_gui.UIManager | None" = None,
     end_turn_btn: "pygame_gui.elements.UIButton | None" = None,
+    done_moving_btn: "pygame_gui.elements.UIButton | None" = None,
 ) -> bool:
     global _selected_territory
     for event in pygame.event.get():
@@ -137,12 +472,20 @@ def _handle_events(
         if ui_manager is not None:
             ui_manager.process_events(event)
 
-        # UIButton End Turn press (pygame-gui event)
+        # UIButton press (pygame-gui event)
         if event.type == pygame_gui.UI_BUTTON_PRESSED:
+            if (
+                done_moving_btn is not None
+                and event.ui_element is done_moving_btn
+                and _ui_phase == "movement"
+            ):
+                if not is_game_over():
+                    _advance_movement_to_combat()
+                continue
             if end_turn_btn is not None and event.ui_element is end_turn_btn:
                 if not is_game_over():
                     skip()
-                    _selected_territory = None
+                    _begin_movement_phase()
             continue
 
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -151,32 +494,38 @@ def _handle_events(
                 continue
             # If using raw button fallback (no ui_manager), handle it here
             if ui_manager is None and end_turn_button_rect(sidebar).collidepoint(event.pos):
-                skip()
+                if _ui_phase == "movement":
+                    _advance_movement_to_combat()
+                else:
+                    skip()
+                    _begin_movement_phase()
+                continue
+
+            r = map_rect
+            mx, my, mw, mh = r.x, r.y, r.w, r.h
+            tid = territory_at_point((mx, my, mw, mh), event.pos[0], event.pos[1], MARKER_RADIUS + 4)
+
+            if _ui_phase == "movement":
+                _handle_movement_click(tid)
+                continue
+
+            # Combat (main) phase: existing attack flow.
+            if tid is None:
+                _selected_territory = None
+            elif owner(tid) == current_team():
+                _selected_territory = tid
+            elif (
+                _selected_territory is not None
+                and tid in valid_attack_targets()
+                and tid in neighbors(_selected_territory)
+            ):
+                try:
+                    attack(tid)
+                except ValueError as e:
+                    logging.warning("Invalid attack ignored: %s", e)
                 _selected_territory = None
             else:
-                r = map_rect
-                mx, my, mw, mh = r.x, r.y, r.w, r.h
-                tid = territory_at_point((mx, my, mw, mh), event.pos[0], event.pos[1], MARKER_RADIUS + 4)
-                if tid is None:
-                    # Clicked empty space: deselect
-                    _selected_territory = None
-                elif owner(tid) == current_team():
-                    # Clicked own territory: select it as attack-from
-                    _selected_territory = tid
-                elif (
-                    _selected_territory is not None
-                    and tid in valid_attack_targets()
-                    and tid in neighbors(_selected_territory)
-                ):
-                    # Clicked valid target adjacent to selected: execute attack
-                    try:
-                        attack(tid)
-                    except ValueError as e:
-                        logging.warning("Invalid attack ignored: %s", e)
-                    _selected_territory = None
-                else:
-                    # Clicked elsewhere (non-owned, non-valid-target): deselect
-                    _selected_territory = None
+                _selected_territory = None
     return True
 
 
@@ -451,26 +800,34 @@ def _draw_map(
     selected: TerritoryId | None = None,
     pulse_alpha: int = 255,
     unit_label_font: pygame.font.Font | None = None,
+    highlight_targets: set[TerritoryId] | None = None,
 ) -> None:
     """Draw map image and filled polygon territory regions.
 
     Each territory is drawn as a semi-transparent filled polygon colored by owner
     (red / blue / neutral-grey).  The selected territory gets a green polygon
-    outline; valid attack targets get a pulsing yellow outline.
+    outline; valid targets (attack targets in combat phase, reachable
+    destinations in combat-movement phase) get a pulsing yellow outline.
 
     Unit icons and text labels are still centred on the territory's x_frac/y_frac
     centre point so they remain readable regardless of polygon shape.
+
+    When `highlight_targets` is provided it overrides the default attack-targets
+    set entirely (used by the combat-movement phase / NCM).
     """
     if map_surf is not None:
         screen.blit(map_surf, map_rect.topleft)
     mx, my, mw, mh = map_rect.x, map_rect.y, map_rect.w, map_rect.h
     map_tuple = (mx, my, mw, mh)
-    all_targets = set(valid_attack_targets())
-    # When a territory is selected, pulse outlines only on its attackable neighbours
-    if selected is not None:
-        selected_targets = {t for t in neighbors(selected) if t in all_targets}
+    if highlight_targets is not None:
+        selected_targets = set(highlight_targets)
     else:
-        selected_targets = all_targets
+        all_targets = set(valid_attack_targets())
+        # When a territory is selected, pulse outlines only on its attackable neighbours
+        if selected is not None:
+            selected_targets = {t for t in neighbors(selected) if t in all_targets}
+        else:
+            selected_targets = all_targets
 
     # Determine whether the mouse is over a polygon territory (for pulse boost)
     hovered_tid: TerritoryId | None = None
@@ -546,32 +903,35 @@ def _draw_map(
 def _show_combat_popup(
     screen: pygame.Surface,
     att_team: str,
-    att_roll: int,
-    def_roll: int,
-    combat_winner: str,
+    combat_state: CombatState,
     def_territory_id: TerritoryId,
     clock: pygame.time.Clock,
     att_territory_id: TerritoryId | None = None,
 ) -> None:
-    """Show battle stats and outcome in a modal popup; wait for any key to close."""
-    from .combat import _effective_attack_bonus, _effective_defense_bonus  # noqa: PLC0415
+    """Show multi-phase combat outcome in a modal popup; wait for any key to close."""
     def_team: str = "Blue" if att_team == "Red" else "Red"
-    attacker_wins = combat_winner == "attacker"
-    outcome = f"{att_team} wins!" if attacker_wins else "Defender holds!"
-    outcome_color = TEAM_COLORS[att_team] if attacker_wins else TEAM_COLORS[def_team]
+    status = combat_state["status"]
+    if status == CombatStatus.ATTACKER_WINS:
+        outcome = f"{att_team} wins!"
+        outcome_color = TEAM_COLORS[att_team]
+    elif status == CombatStatus.DEFENDER_WINS:
+        outcome = "Defender holds!"
+        outcome_color = TEAM_COLORS[def_team]
+    else:
+        outcome = "Retreat"
+        outcome_color = TEXT_COLOR
     def_name = display_name(def_territory_id)
-
-    # Compute unit stat bonuses for display
-    att_bonus = _effective_attack_bonus(att_team, att_territory_id) if att_territory_id else 0  # type: ignore[arg-type]
-    def_bonus = _effective_defense_bonus(def_team, def_territory_id)  # type: ignore[arg-type]
-    bonus_text = f"Att +{att_bonus}  Def +{def_bonus}" if (att_bonus or def_bonus) else ""
+    att_rolls = combat_state["last_att_rolls"]
+    def_rolls = combat_state["last_def_rolls"]
+    rem_att = combat_state["remaining_attackers"]
+    rem_def = combat_state["remaining_defenders"]
 
     overlay = pygame.Surface((WIDTH, HEIGHT))
     overlay.set_alpha(200)
     overlay.fill((0, 0, 0))
     screen.blit(overlay, (0, 0))
 
-    popup_w, popup_h = 320, 210
+    popup_w, popup_h = 380, 270
     popup_x = (WIDTH - popup_w) // 2
     popup_y = (HEIGHT - popup_h) // 2
     popup_rect = pygame.Rect(popup_x, popup_y, popup_w, popup_h)
@@ -580,18 +940,32 @@ def _show_combat_popup(
     font = pygame.font.Font(None, 48)
     small_font = pygame.font.Font(None, 24)
     title = font.render("Combat", True, MOVES_TITLE_COLOR)
-    screen.blit(title, title.get_rect(centerx=popup_rect.centerx, top=popup_y + 14))
-    msg = font.render(f"{att_team} {att_roll}  vs  {def_team} {def_roll}", True, TEXT_COLOR)
-    screen.blit(msg, msg.get_rect(centerx=popup_rect.centerx, top=popup_y + 50))
-    if bonus_text:
-        bonus_surf = small_font.render(bonus_text, True, MOVES_TITLE_COLOR)
-        screen.blit(bonus_surf, bonus_surf.get_rect(centerx=popup_rect.centerx, top=popup_y + 86))
+    screen.blit(title, title.get_rect(centerx=popup_rect.centerx, top=popup_y + 10))
+    phase_label = small_font.render(
+        f"Phase {combat_state['phase_index']}: {att_team} {att_rolls} vs {def_team} {def_rolls}",
+        True,
+        TEXT_COLOR,
+    )
+    screen.blit(phase_label, phase_label.get_rect(centerx=popup_rect.centerx, top=popup_y + 56))
+    dmg_label = small_font.render(
+        f"Damage: att {combat_state['last_att_damage']}  def {combat_state['last_def_damage']}",
+        True,
+        MOVES_TITLE_COLOR,
+    )
+    screen.blit(dmg_label, dmg_label.get_rect(centerx=popup_rect.centerx, top=popup_y + 82))
+    rem_label = small_font.render(
+        f"Remaining: {att_team} {rem_att.get('infantry', 0)}i {rem_att.get('tanks', 0)}t  |  "
+        f"{def_team} {rem_def.get('infantry', 0)}i {rem_def.get('tanks', 0)}t",
+        True,
+        TEXT_COLOR,
+    )
+    screen.blit(rem_label, rem_label.get_rect(centerx=popup_rect.centerx, top=popup_y + 108))
     defending_label = small_font.render(f"Defending: {def_name}", True, MOVES_TITLE_COLOR)
-    screen.blit(defending_label, defending_label.get_rect(centerx=popup_rect.centerx, top=popup_y + 104))
+    screen.blit(defending_label, defending_label.get_rect(centerx=popup_rect.centerx, top=popup_y + 134))
     outcome_surf = font.render(outcome, True, outcome_color)
-    screen.blit(outcome_surf, outcome_surf.get_rect(centerx=popup_rect.centerx, top=popup_y + 128))
+    screen.blit(outcome_surf, outcome_surf.get_rect(centerx=popup_rect.centerx, top=popup_y + 162))
     hint = pygame.font.Font(None, 24).render("Press any key to close", True, MOVES_TITLE_COLOR)
-    screen.blit(hint, hint.get_rect(centerx=popup_rect.centerx, top=popup_y + 172))
+    screen.blit(hint, hint.get_rect(centerx=popup_rect.centerx, top=popup_y + 222))
     pygame.display.flip()
     waiting = True
     while waiting:
@@ -689,7 +1063,14 @@ def _draw_right_sidebar(
     turn_surf = btn_font.render(turn_label, True, TEAM_COLORS[current_team()])
     turn_rect = turn_surf.get_rect(x=sidebar.x + SIDEBAR_PAD, y=y)
     screen.blit(turn_surf, turn_rect)
-    y = turn_rect.bottom + SIDEBAR_TURN_GAP
+    y = turn_rect.bottom + SIDEBAR_LINE_GAP
+    if _ui_phase == "movement":
+        phase_surf = small_font.render("Combat Movement", True, MOVES_TITLE_COLOR)
+        phase_rect = phase_surf.get_rect(x=sidebar.x + SIDEBAR_PAD, y=y)
+        screen.blit(phase_surf, phase_rect)
+        y = phase_rect.bottom + SIDEBAR_TURN_GAP
+    else:
+        y += SIDEBAR_TURN_GAP
     targets = valid_attack_targets()
     skip_ok = can_skip()
     moves_title = small_font.render("Possible moves", True, MOVES_TITLE_COLOR)
@@ -729,6 +1110,15 @@ def main() -> None:
         text="End Turn",
         manager=ui_manager,
     )
+    # Combat-movement "Done Moving" button (CEC-12): occupies the same rect as
+    # End Turn but is only visible during the movement phase. End Turn and
+    # Done Moving are mutually exclusive — show / hide each frame based on
+    # _ui_phase.
+    done_moving_btn = pygame_gui.elements.UIButton(
+        relative_rect=btn_rect,
+        text="Done Moving",
+        manager=ui_manager,
+    )
     # sidebar_panel is None; the sidebar background is drawn with raw pygame.draw.rect
     # in _draw_right_sidebar so that text labels rendered before ui_manager.draw_ui()
     # are not covered. The primary "styled widget container" for the sidebar is the
@@ -756,16 +1146,36 @@ def main() -> None:
     def on_combat(target_id: TerritoryId) -> None:
         global _last_combat
         att = current_team()
-        att_roll, def_roll = roll_combat()
+        defender: str = "Blue" if att == "Red" else "Red"
         att_tid = _selected_territory
-        # Apply unit stats if an attacking territory is selected
+        # Pull starting unit stacks from the territories.  When no attacker source
+        # is selected (legacy hook usage), default to a single infantry attacker.
         if att_tid is not None:
-            combat_winner = resolve_combat_with_units(att_roll, def_roll, att, att_tid, target_id)
+            attackers = territory_units(att_tid, att)  # type: ignore[arg-type]
         else:
-            combat_winner = resolve_combat(att_roll, def_roll)
-        _last_combat = (att, att_roll, def_roll, combat_winner, target_id, att_tid)
-        if combat_winner == "attacker":
-            set_owner(target_id, att)
+            attackers = {"infantry": 1, "tanks": 0}
+        defenders = territory_units(target_id, defender)  # type: ignore[arg-type]
+
+        loop = CombatLoop(attackers=attackers, defenders=defenders)
+        # Auto-continue: run phases until terminal.  Retreat decisions wired in CEC-10.
+        loop.run_phase()
+        while loop.get_combat_state()["status"] == CombatStatus.AWAITING_DECISION:
+            loop.submit_decision(attacker_continues=True, defender_continues=True)
+        state = loop.get_combat_state()
+
+        # Sync surviving units back into the territories.
+        if att_tid is not None:
+            set_units(att_tid, att, state["remaining_attackers"])  # type: ignore[arg-type]
+        set_units(target_id, defender, state["remaining_defenders"])  # type: ignore[arg-type]
+
+        _last_combat = (att, state, target_id, att_tid)
+        # ATTACKER_WINS: transfer ownership and advance survivors into the defender's tile.
+        # DEFENDER_WINS / RETREAT_NO_CHANGE: ownership unchanged.
+        if state["status"] == CombatStatus.ATTACKER_WINS:
+            set_owner(target_id, att)  # type: ignore[arg-type]
+            set_units(target_id, att, state["remaining_attackers"])  # type: ignore[arg-type]
+            if att_tid is not None:
+                set_units(att_tid, att, {"infantry": 0, "tanks": 0})  # type: ignore[arg-type]
 
     set_combat_hook(on_combat)
     clock = pygame.time.Clock()
@@ -774,8 +1184,21 @@ def main() -> None:
         time_delta = clock.tick(FPS) / 1000.0
         map_rect = _map_rect()
         prev_team = current_team()
+        # Toggle button visibility based on UI phase: only one of End Turn /
+        # Done Moving is shown at a time.
+        if _ui_phase == "movement":
+            end_turn_btn.hide()
+            done_moving_btn.show()
+        else:
+            done_moving_btn.hide()
+            end_turn_btn.show()
         running = _handle_events(
-            right_sidebar_rect(), map_surf, map_rect, ui_manager, end_turn_btn
+            right_sidebar_rect(),
+            map_surf,
+            map_rect,
+            ui_manager,
+            end_turn_btn,
+            done_moving_btn,
         )
         if not running:
             break
@@ -790,7 +1213,20 @@ def main() -> None:
         phase = (t_ms % PULSE_PERIOD_MS) / PULSE_PERIOD_MS  # 0.0 to 1.0
         sine_val = (1.0 + math.sin(2 * math.pi * phase - math.pi / 2)) / 2  # 0.0 to 1.0
         pulse_alpha = int(PULSE_ALPHA_MIN + (PULSE_ALPHA_MAX - PULSE_ALPHA_MIN) * sine_val)
-        _draw_map(screen, map_rect, map_surf, mouse_pos, _selected_territory, pulse_alpha, unit_label_font)
+        if _ui_phase == "movement":
+            highlights = _movement_reachable(_selected_territory) if _selected_territory else set()
+        else:
+            highlights = None
+        _draw_map(
+            screen,
+            map_rect,
+            map_surf,
+            mouse_pos,
+            _selected_territory,
+            pulse_alpha,
+            unit_label_font,
+            highlight_targets=highlights,
+        )
         # Tooltip: managed by pygame-gui (created/destroyed in _draw_coord_tooltip)
         _draw_coord_tooltip(screen, map_rect, mouse_pos, small_font, ui_manager)
         # Bottom bar: draw background + dots; UILabels updated inside (via team_labels)
@@ -802,8 +1238,8 @@ def main() -> None:
         ui_manager.draw_ui(screen)
         pygame.display.flip()
         if _last_combat is not None:
-            att_team, att_roll, def_roll, combat_winner, def_tid, att_tid = _last_combat
-            _show_combat_popup(screen, att_team, att_roll, def_roll, combat_winner, def_tid, clock, att_tid)
+            att_team, combat_state, def_tid, att_tid = _last_combat
+            _show_combat_popup(screen, att_team, combat_state, def_tid, clock, att_tid)
             _last_combat = None
             continue
         if is_game_over():
