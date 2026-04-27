@@ -1,9 +1,15 @@
-.PHONY: install test run clean shell build
+.PHONY: install test test-unit run serve clean shell build
 
 install: build
 
 test:
 	poetry run pytest tests/ -v
+
+test-unit:
+	poetry run pytest tests/ -v -k "not browser"
+
+serve:
+	poetry run python -m src.server
 
 run:
 	poetry run python -m src.game
