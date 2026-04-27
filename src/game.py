@@ -460,6 +460,9 @@ def _handle_events(
     ui_manager: "pygame_gui.UIManager | None" = None,
     end_turn_btn: "pygame_gui.elements.UIButton | None" = None,
     done_moving_btn: "pygame_gui.elements.UIButton | None" = None,
+    next_battle_btn: "pygame_gui.elements.UIButton | None" = None,
+    skip_all_btn: "pygame_gui.elements.UIButton | None" = None,
+    on_battle_resolved: "callable | None" = None,
 ) -> bool:
     global _selected_territory
     for event in pygame.event.get():
@@ -482,20 +485,51 @@ def _handle_events(
                 if not is_game_over():
                     _advance_movement_to_combat()
                 continue
+            # Multi-battle UI (CEC-17): Next Battle -> resolve next pending battle.
+            if next_battle_btn is not None and event.ui_element is next_battle_btn:
+                if not is_game_over() and pending_battles():
+                    result = resolve_next_battle(current_team())
+                    if on_battle_resolved is not None:
+                        on_battle_resolved(result)
+                continue
+            # Multi-battle UI (CEC-17): Skip All -> discard the rest of the queue.
+            if skip_all_btn is not None and event.ui_element is skip_all_btn:
+                if not is_game_over():
+                    skip_all_battles(current_team())
+                continue
             if end_turn_btn is not None and event.ui_element is end_turn_btn:
                 if not is_game_over():
-                    skip()
-                    _begin_movement_phase()
+                    if _ui_phase == "main":
+                        _begin_ncm_phase()
+                    elif _ui_phase == "ncm":
+                        _advance_ncm_to_end_turn()
+                    else:
+                        skip()
+                        _begin_movement_phase()
             continue
 
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if is_game_over():
                 # No actions allowed once the game has ended
                 continue
+            # Multi-battle UI fallback (no ui_manager): handle Next/Skip All by rect.
+            if ui_manager is None and pending_battles():
+                if next_battle_button_rect(sidebar).collidepoint(event.pos):
+                    result = resolve_next_battle(current_team())
+                    if on_battle_resolved is not None:
+                        on_battle_resolved(result)
+                    continue
+                if skip_all_battles_button_rect(sidebar).collidepoint(event.pos):
+                    skip_all_battles(current_team())
+                    continue
             # If using raw button fallback (no ui_manager), handle it here
             if ui_manager is None and end_turn_button_rect(sidebar).collidepoint(event.pos):
                 if _ui_phase == "movement":
                     _advance_movement_to_combat()
+                elif _ui_phase == "main":
+                    _begin_ncm_phase()
+                elif _ui_phase == "ncm":
+                    _advance_ncm_to_end_turn()
                 else:
                     skip()
                     _begin_movement_phase()
@@ -507,6 +541,9 @@ def _handle_events(
 
             if _ui_phase == "movement":
                 _handle_movement_click(tid)
+                continue
+            if _ui_phase == "ncm":
+                _handle_ncm_click(tid)
                 continue
 
             # Combat (main) phase: existing attack flow.
@@ -1078,6 +1115,11 @@ def _draw_right_sidebar(
         phase_rect = phase_surf.get_rect(x=sidebar.x + SIDEBAR_PAD, y=y)
         screen.blit(phase_surf, phase_rect)
         y = phase_rect.bottom + SIDEBAR_TURN_GAP
+    elif _ui_phase == "ncm":
+        phase_surf = small_font.render("Non-Combat Movement", True, MOVES_TITLE_COLOR)
+        phase_rect = phase_surf.get_rect(x=sidebar.x + SIDEBAR_PAD, y=y)
+        screen.blit(phase_surf, phase_rect)
+        y = phase_rect.bottom + SIDEBAR_TURN_GAP
     else:
         y += SIDEBAR_TURN_GAP
     targets = valid_attack_targets()
@@ -1205,12 +1247,17 @@ def main() -> None:
         map_rect = _map_rect()
         prev_team = current_team()
         # Toggle button visibility based on UI phase: only one of End Turn /
-        # Done Moving is shown at a time.
+        # Done Moving is shown at a time. In NCM the End Turn button reads
+        # "Done" — it finalises NCM and advances the turn (CEC-18).
         if _ui_phase == "movement":
             end_turn_btn.hide()
             done_moving_btn.show()
         else:
             done_moving_btn.hide()
+            if _ui_phase == "ncm":
+                end_turn_btn.set_text("Done")
+            else:
+                end_turn_btn.set_text("End Turn")
             end_turn_btn.show()
         running = _handle_events(
             right_sidebar_rect(),
@@ -1235,6 +1282,12 @@ def main() -> None:
         pulse_alpha = int(PULSE_ALPHA_MIN + (PULSE_ALPHA_MAX - PULSE_ALPHA_MIN) * sine_val)
         if _ui_phase == "movement":
             highlights = _movement_reachable(_selected_territory) if _selected_territory else set()
+        elif _ui_phase == "ncm":
+            highlights = (
+                _ncm_friendly_destinations(_selected_territory)
+                if _selected_territory
+                else set()
+            )
         else:
             highlights = None
         _draw_map(
