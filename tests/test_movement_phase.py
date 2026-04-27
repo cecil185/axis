@@ -25,6 +25,8 @@ from src.movement_phase import (
     end_movement_phase,
     pending_battles,
     reset_movement_phase,
+    resolve_next_battle,
+    skip_all_battles,
     current_phase,
     PhaseState,
 )
@@ -323,3 +325,125 @@ class TestClaimNeutralOnMove:
         reset_units()
         move_unit("marshall", "nauru", "Red", "infantry", 2)
         assert units("nauru", "Red")["infantry"] == 2
+
+
+# ---------------------------------------------------------------------------
+# Multi-attack: resolve_next_battle / skip_all_battles (CEC-13)
+# ---------------------------------------------------------------------------
+
+
+def _seq_rng(values: list[int]):
+    """Return a zero-arg callable that yields values in sequence."""
+    it = iter(values)
+    return lambda: next(it)
+
+
+class TestResolveNextBattle:
+    def test_attacker_wins_transfers_ownership(self) -> None:
+        """When attacker rolls higher, the territory flips to the attacker."""
+        _fresh()
+        _setup(["japan"], ["minamitori"])
+        move_unit("japan", "minamitori", "Red", "infantry", 1)
+        from src.territory import owner as territory_owner
+        assert territory_owner("minamitori") == "Blue"
+        # Attacker rolls 6, defender rolls 1 -> attacker wins
+        result = resolve_next_battle("Red", rng=_seq_rng([6, 1]))
+        assert result["winner"] == "attacker"
+        assert result["territory"] == "minamitori"
+        assert territory_owner("minamitori") == "Red"
+
+    def test_defender_wins_keeps_ownership(self) -> None:
+        """When defender wins, ownership does not change."""
+        _fresh()
+        _setup(["japan"], ["minamitori"])
+        move_unit("japan", "minamitori", "Red", "infantry", 1)
+        from src.territory import owner as territory_owner
+        # Attacker rolls 1, defender rolls 6 -> defender wins
+        result = resolve_next_battle("Red", rng=_seq_rng([1, 6]))
+        assert result["winner"] == "defender"
+        assert territory_owner("minamitori") == "Blue"
+
+    def test_resolve_pops_from_queue(self) -> None:
+        """A resolved battle is removed from pending_battles()."""
+        _fresh()
+        _setup(["japan", "marianas"], ["minamitori", "micronesia"])
+        move_unit("japan", "minamitori", "Red", "infantry", 1)
+        move_unit("marianas", "micronesia", "Red", "infantry", 1)
+        assert len(pending_battles()) == 2
+        resolve_next_battle("Red", rng=_seq_rng([6, 1]))
+        remaining = pending_battles()
+        assert len(remaining) == 1
+        assert remaining[0] == "micronesia"
+
+    def test_resolve_battles_in_insertion_order(self) -> None:
+        """The first-registered battle resolves first."""
+        _fresh()
+        _setup(["japan", "marianas"], ["minamitori", "micronesia"])
+        move_unit("japan", "minamitori", "Red", "infantry", 1)
+        move_unit("marianas", "micronesia", "Red", "infantry", 1)
+        first = resolve_next_battle("Red", rng=_seq_rng([6, 1]))
+        second = resolve_next_battle("Red", rng=_seq_rng([6, 1]))
+        assert first["territory"] == "minamitori"
+        assert second["territory"] == "micronesia"
+
+    def test_resolve_with_no_pending_raises(self) -> None:
+        """Calling resolve_next_battle with empty queue raises ValueError."""
+        _fresh()
+        with pytest.raises(ValueError, match="No pending battles"):
+            resolve_next_battle("Red", rng=_seq_rng([6, 1]))
+
+    def test_resolve_can_chain_to_empty(self) -> None:
+        """Resolving every battle leaves the queue empty."""
+        _fresh()
+        _setup(["japan", "marianas"], ["minamitori", "micronesia"])
+        move_unit("japan", "minamitori", "Red", "infantry", 1)
+        move_unit("marianas", "micronesia", "Red", "infantry", 1)
+        resolve_next_battle("Red", rng=_seq_rng([6, 1]))
+        resolve_next_battle("Red", rng=_seq_rng([6, 1]))
+        assert pending_battles() == []
+
+
+class TestSkipAllBattles:
+    def test_skip_clears_queue(self) -> None:
+        _fresh()
+        _setup(["japan", "marianas"], ["minamitori", "micronesia"])
+        move_unit("japan", "minamitori", "Red", "infantry", 1)
+        move_unit("marianas", "micronesia", "Red", "infantry", 1)
+        assert len(pending_battles()) == 2
+        skipped = skip_all_battles("Red")
+        assert skipped == 2
+        assert pending_battles() == []
+
+    def test_skip_with_empty_queue_returns_zero(self) -> None:
+        _fresh()
+        assert skip_all_battles("Red") == 0
+
+    def test_skip_does_not_change_ownership(self) -> None:
+        """Skipping must not flip any territory."""
+        _fresh()
+        _setup(["japan"], ["minamitori"])
+        move_unit("japan", "minamitori", "Red", "infantry", 1)
+        from src.territory import owner as territory_owner
+        skip_all_battles("Red")
+        assert territory_owner("minamitori") == "Blue"
+
+    def test_skip_after_resolve_clears_remaining(self) -> None:
+        """Resolving one then skipping the rest leaves queue empty."""
+        _fresh()
+        _setup(["japan", "marianas"], ["minamitori", "micronesia"])
+        move_unit("japan", "minamitori", "Red", "infantry", 1)
+        move_unit("marianas", "micronesia", "Red", "infantry", 1)
+        resolve_next_battle("Red", rng=_seq_rng([6, 1]))
+        skipped = skip_all_battles("Red")
+        assert skipped == 1
+        assert pending_battles() == []
+
+
+class TestPendingBattlesTeamArg:
+    def test_pending_battles_accepts_team_arg(self) -> None:
+        """pending_battles(team) accepts the optional team parameter."""
+        _fresh()
+        _setup(["japan"], ["minamitori"])
+        move_unit("japan", "minamitori", "Red", "infantry", 1)
+        # Both forms must return the same list.
+        assert pending_battles() == pending_battles("Red")

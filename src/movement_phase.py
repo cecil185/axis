@@ -25,8 +25,19 @@ move_unit(from_tid, to_tid, team, unit_type, count)
 end_movement_phase() -> None
     Finalise movement and advance the phase to "combat".
 
-pending_battles() -> list[TerritoryId]
+pending_battles(team=None) -> list[TerritoryId]
     Return territory IDs with pending battles, in insertion order.
+    The optional `team` argument is accepted for API symmetry; the queue
+    always belongs to whichever team performed the movement phase.
+
+resolve_next_battle(team, *, rng=None) -> BattleResult
+    Resolve the next pending battle for `team`: roll combat with unit-stat
+    bonuses, transfer ownership if the attacker wins, and pop the battle
+    from the queue. Returns a BattleResult dict with rolls and outcome.
+
+skip_all_battles(team) -> int
+    Discard every remaining pending battle for `team` without rolling.
+    Returns the number of battles that were skipped.
 
 current_phase() -> PhaseState
     Return the current phase: "movement" or "combat".
@@ -36,7 +47,7 @@ reset_movement_phase() -> None
     Called at the start of a new turn.
 """
 
-from typing import Literal
+from typing import Callable, Literal, TypedDict
 
 from .territory import Team, TerritoryId, owner, set_owner
 from .units import units as get_units, set_units, UnitType
@@ -61,8 +72,15 @@ def current_phase() -> PhaseState:
     return _current_phase
 
 
-def pending_battles() -> list[TerritoryId]:
-    """Return territory IDs with pending battles in the order they were registered."""
+def pending_battles(team: Team | None = None) -> list[TerritoryId]:
+    """Return territory IDs with pending battles in the order they were registered.
+
+    The optional `team` argument is accepted for API symmetry — the queue is
+    not partitioned by team because only one team acts per turn — and is
+    currently ignored. It is kept on the signature so callers can document
+    *which* team's battles they intend to resolve.
+    """
+    del team  # accepted for API symmetry
     return list(_pending_battles)
 
 
@@ -174,3 +192,107 @@ def end_movement_phase() -> None:
     """
     global _current_phase
     _current_phase = "combat"
+
+
+# ---------------------------------------------------------------------------
+# Multi-attack: resolving and skipping pending battles
+# ---------------------------------------------------------------------------
+
+class BattleResult(TypedDict):
+    """Outcome of a single resolved battle in the pending-battle queue."""
+    territory: TerritoryId
+    attacker: Team
+    defender: Team
+    att_roll: int
+    def_roll: int
+    winner: Literal["attacker", "defender"]
+
+
+def resolve_next_battle(
+    team: Team,
+    *,
+    rng: Callable[[], int] | None = None,
+) -> BattleResult:
+    """
+    Resolve the next pending battle for `team`.
+
+    Pops the first territory from the pending-battle queue, rolls combat
+    using unit stats from the attacking and defending stacks, and transfers
+    ownership of the territory to `team` if the attacker wins.
+
+    Parameters
+    ----------
+    team:
+        The attacking team (the team currently taking its turn).
+    rng:
+        Optional zero-arg callable returning a die value in 1–6. Used by
+        tests to inject deterministic rolls. When None, a real random
+        roll is performed.
+
+    Returns
+    -------
+    BattleResult dict describing the territory, attacker/defender teams,
+    rolls, and the winner ("attacker" or "defender").
+
+    Raises
+    ------
+    ValueError
+        If there are no pending battles to resolve.
+    """
+    # Lazy imports avoid a circular dependency at module-load time.
+    from .combat import roll_combat, resolve_combat_with_units  # noqa: PLC0415
+
+    if not _pending_battles:
+        raise ValueError("No pending battles to resolve.")
+
+    target = _pending_battles[0]
+    defender: Team = "Blue" if team == "Red" else "Red"
+
+    att_roll, def_roll = roll_combat(rng=rng)
+
+    # Find an attacker-owned neighbour to source unit-stat bonuses from.
+    # The attacker just moved units into `target`, so the bonuses come from
+    # the units they brought (now stacked at `target` under `team`).
+    # We pass `target` as the attacking_tid so attack bonuses reflect the
+    # invading force; defense bonuses come from the defender's stack at
+    # `target`.
+    winner = resolve_combat_with_units(
+        att_roll, def_roll, team, target, target
+    )
+
+    if winner == "attacker":
+        set_owner(target, team)
+        # Defender's units at this territory are wiped out on a win.
+        set_units(target, defender, {"infantry": 0, "tanks": 0})
+    else:
+        # Defender holds: attacking units sent to this territory are lost.
+        set_units(target, team, {"infantry": 0, "tanks": 0})
+
+    # Pop the resolved battle from the queue.
+    _pending_battles.pop(0)
+    _pending_battles_set.discard(target)
+
+    return BattleResult(
+        territory=target,
+        attacker=team,
+        defender=defender,
+        att_roll=att_roll,
+        def_roll=def_roll,
+        winner=winner,
+    )
+
+
+def skip_all_battles(team: Team) -> int:
+    """
+    Discard every remaining pending battle for `team` without rolling.
+
+    Returns
+    -------
+    int
+        Number of battles that were skipped.
+    """
+    del team  # accepted for API symmetry; queue is not partitioned by team
+    count = len(_pending_battles)
+    _pending_battles.clear()
+    _pending_battles_set.clear()
+    return count
