@@ -6,11 +6,14 @@ from src.state import TEAMS, current_team, end_turn
 from src.economy import (
     UNIT_COSTS,
     buy_unit,
+    clear_pending,
     collect_income,
     get_balance,
     get_pending,
+    place_unit,
     reset_balances,
 )
+from src.units import init_game, units as territory_units
 
 RED, BLUE = TEAMS[0], TEAMS[1]
 
@@ -264,3 +267,118 @@ def test_reset_balances_clears_pending_queue() -> None:
     reset_balances()
     assert get_pending(RED) == {"infantry": 0, "tanks": 0}
     assert get_pending(BLUE) == {"infantry": 0, "tanks": 0}
+
+
+# ---------------------------------------------------------------------------
+# Unit placement: place_unit / clear_pending
+# ---------------------------------------------------------------------------
+
+
+def _setup_placement_test() -> str:
+    """Reset units to game-start state and ensure Red owns ALL_TERRITORY_IDS[0]."""
+    init_game()
+    # Restore Red ownership where setup_function would have set it
+    for i, tid in enumerate(ALL_TERRITORY_IDS):
+        set_owner(tid, RED if i < 15 else BLUE)
+    return ALL_TERRITORY_IDS[0]
+
+
+def test_place_unit_moves_infantry_from_queue_to_territory() -> None:
+    tid = _setup_placement_test()
+    collect_income(RED)
+    buy_unit(RED, "infantry")
+    before = territory_units(tid, RED).get("infantry", 0)
+    place_unit(RED, tid, "infantry")
+    assert get_pending(RED)["infantry"] == 0
+    assert territory_units(tid, RED).get("infantry", 0) == before + 1
+
+
+def test_place_unit_moves_tank_from_queue_to_territory() -> None:
+    tid = _setup_placement_test()
+    collect_income(RED)
+    buy_unit(RED, "tanks")
+    before = territory_units(tid, RED).get("tanks", 0)
+    place_unit(RED, tid, "tanks")
+    assert get_pending(RED)["tanks"] == 0
+    assert territory_units(tid, RED).get("tanks", 0) == before + 1
+
+
+def test_place_unit_rejects_when_team_does_not_own_territory() -> None:
+    _setup_placement_test()
+    collect_income(RED)
+    buy_unit(RED, "infantry")
+    blue_tid = ALL_TERRITORY_IDS[15]  # owned by Blue per setup
+    assert ALL_TERRITORY_IDS  # mypy
+    with pytest.raises(ValueError):
+        place_unit(RED, blue_tid, "infantry")
+    # Queue unaffected on rejection
+    assert get_pending(RED)["infantry"] == 1
+
+
+def test_place_unit_rejects_when_unit_type_not_in_queue() -> None:
+    tid = _setup_placement_test()
+    collect_income(RED)
+    buy_unit(RED, "infantry")  # only infantry queued
+    with pytest.raises(ValueError):
+        place_unit(RED, tid, "tanks")
+    # Queue unaffected on rejection
+    assert get_pending(RED) == {"infantry": 1, "tanks": 0}
+
+
+def test_place_unit_rejects_when_queue_is_empty() -> None:
+    tid = _setup_placement_test()
+    assert get_pending(RED) == {"infantry": 0, "tanks": 0}
+    with pytest.raises(ValueError):
+        place_unit(RED, tid, "infantry")
+
+
+def test_place_unit_decrements_queue_one_at_a_time() -> None:
+    tid = _setup_placement_test()
+    collect_income(RED)
+    buy_unit(RED, "infantry")
+    buy_unit(RED, "infantry")
+    place_unit(RED, tid, "infantry")
+    assert get_pending(RED)["infantry"] == 1
+    place_unit(RED, tid, "infantry")
+    assert get_pending(RED)["infantry"] == 0
+
+
+def test_place_unit_does_not_affect_other_team_units_in_territory() -> None:
+    tid = _setup_placement_test()
+    collect_income(RED)
+    buy_unit(RED, "infantry")
+    blue_before = territory_units(tid, BLUE)
+    place_unit(RED, tid, "infantry")
+    assert territory_units(tid, BLUE) == blue_before
+
+
+def test_clear_pending_empties_the_queue() -> None:
+    _setup_placement_test()
+    collect_income(RED)
+    buy_unit(RED, "infantry")
+    buy_unit(RED, "tanks")
+    clear_pending(RED)
+    assert get_pending(RED) == {"infantry": 0, "tanks": 0}
+
+
+def test_clear_pending_does_not_refund_balance() -> None:
+    """Discarding pending units forfeits the IPCs already spent."""
+    _setup_placement_test()
+    collect_income(RED)
+    starting = get_balance(RED)
+    buy_unit(RED, "infantry")
+    after_buy = get_balance(RED)
+    assert after_buy == starting - 3
+    clear_pending(RED)
+    assert get_balance(RED) == after_buy  # no refund
+
+
+def test_clear_pending_only_affects_specified_team() -> None:
+    _setup_placement_test()
+    collect_income(RED)
+    collect_income(BLUE)
+    buy_unit(RED, "infantry")
+    buy_unit(BLUE, "tanks")
+    clear_pending(RED)
+    assert get_pending(RED) == {"infantry": 0, "tanks": 0}
+    assert get_pending(BLUE) == {"infantry": 0, "tanks": 1}

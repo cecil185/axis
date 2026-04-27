@@ -7,8 +7,8 @@ currently owns.  Teams may spend IPCs to purchase units (infantry, tanks)
 which sit in a per-team pending queue until placed on owned territories.
 """
 
-from .territory import ALL_TERRITORY_IDS, Team, ipc_value, owner
-from .units import UnitCounts, UnitType
+from .territory import ALL_TERRITORY_IDS, Team, TerritoryId, ipc_value, owner
+from .units import UnitCounts, UnitType, set_units, units
 
 # Persistent per-team IPC balance.  Zero-initialised; never goes below zero.
 _balances: dict[Team, int] = {"Red": 0, "Blue": 0}
@@ -69,3 +69,25 @@ def buy_unit(team: Team, unit_type: UnitType) -> None:
 def get_pending(team: Team) -> UnitCounts:
     """Return a copy of *team*'s pending purchase queue."""
     return dict(_pending[team])
+
+
+def place_unit(team: Team, tid: TerritoryId, unit_type: UnitType) -> None:
+    """
+    Move one unit of *unit_type* from *team*'s pending queue into the unit
+    stack of territory *tid*.  Raises ValueError when:
+      - *team* does not own *tid*, or
+      - the pending queue has no unit of *unit_type* available.
+    """
+    if owner(tid) != team:
+        raise ValueError(f"{team} does not own {tid}; cannot place unit")
+    if _pending[team][unit_type] <= 0:
+        raise ValueError(f"{team} has no pending {unit_type} to place")
+    _pending[team][unit_type] -= 1
+    stack = units(tid, team)
+    stack[unit_type] = stack.get(unit_type, 0) + 1
+    set_units(tid, team, stack)
+
+
+def clear_pending(team: Team) -> None:
+    """Discard any remaining units in *team*'s pending queue."""
+    _pending[team] = {"infantry": 0, "tanks": 0}
