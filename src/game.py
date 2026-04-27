@@ -186,6 +186,10 @@ def _handle_movement_click(tid: TerritoryId | None) -> None:
             if inf > 0:
                 move_unit(src, tid, team, "infantry", inf)
             if tnk > 0:
+                # A single UI click moves the entire stack; move_unit() marks
+                # the source as moved-from after the infantry call, so we lift
+                # that mark for the tank leg of the same logical move.
+                _combat_moved_from.discard(src)
                 move_unit(src, tid, team, "tanks", tnk)
         except ValueError as e:
             logging.warning("Invalid move ignored: %s", e)

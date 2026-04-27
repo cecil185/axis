@@ -90,12 +90,16 @@ def reset_movement_phase() -> None:
 
     Clears the moved-from set, pending battle list, and sets phase to 'movement'.
     Called at the start of a new turn.
+
+    The mutable containers (_moved_from, _pending_battles, _pending_battles_set)
+    are cleared in place so external aliases imported via `from ... import _moved_from`
+    stay in sync.
     """
-    global _current_phase, _moved_from, _pending_battles, _pending_battles_set
+    global _current_phase
     _current_phase = "movement"
-    _moved_from = set()
-    _pending_battles = []
-    _pending_battles_set = set()
+    _moved_from.clear()
+    _pending_battles.clear()
+    _pending_battles_set.clear()
 
 
 def move_unit(
