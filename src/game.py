@@ -911,14 +911,22 @@ def _show_combat_popup(
     """Show multi-phase combat outcome in a modal popup; wait for any key to close."""
     def_team: str = "Blue" if att_team == "Red" else "Red"
     status = combat_state["status"]
+    is_terminal = status in (
+        CombatStatus.ATTACKER_WINS,
+        CombatStatus.DEFENDER_WINS,
+        CombatStatus.RETREAT_NO_CHANGE,
+    )
     if status == CombatStatus.ATTACKER_WINS:
         outcome = f"{att_team} wins!"
         outcome_color = TEAM_COLORS[att_team]
     elif status == CombatStatus.DEFENDER_WINS:
         outcome = "Defender holds!"
         outcome_color = TEAM_COLORS[def_team]
-    else:
+    elif status == CombatStatus.RETREAT_NO_CHANGE:
         outcome = "Retreat"
+        outcome_color = TEXT_COLOR
+    else:  # AWAITING_DECISION (mid-battle, more phases coming)
+        outcome = "Phase complete"
         outcome_color = TEXT_COLOR
     def_name = display_name(def_territory_id)
     att_rolls = combat_state["last_att_rolls"]
@@ -964,7 +972,8 @@ def _show_combat_popup(
     screen.blit(defending_label, defending_label.get_rect(centerx=popup_rect.centerx, top=popup_y + 134))
     outcome_surf = font.render(outcome, True, outcome_color)
     screen.blit(outcome_surf, outcome_surf.get_rect(centerx=popup_rect.centerx, top=popup_y + 162))
-    hint = pygame.font.Font(None, 24).render("Press any key to close", True, MOVES_TITLE_COLOR)
+    hint_text = "Press any key to close" if is_terminal else "Press any key for next phase"
+    hint = pygame.font.Font(None, 24).render(hint_text, True, MOVES_TITLE_COLOR)
     screen.blit(hint, hint.get_rect(centerx=popup_rect.centerx, top=popup_y + 222))
     pygame.display.flip()
     waiting = True
@@ -1157,18 +1166,29 @@ def main() -> None:
         defenders = territory_units(target_id, defender)  # type: ignore[arg-type]
 
         loop = CombatLoop(attackers=attackers, defenders=defenders)
-        # Auto-continue: run phases until terminal.  Retreat decisions wired in CEC-10.
+        # Run phases interactively: after each phase the popup refreshes with the
+        # latest CombatState (CEC-9). Retreat decisions are added in CEC-10; for
+        # now AWAITING_DECISION always continues both sides.
         loop.run_phase()
-        while loop.get_combat_state()["status"] == CombatStatus.AWAITING_DECISION:
+        while True:
+            state = loop.get_combat_state()
+            _show_combat_popup(screen, att, state, target_id, clock, att_tid)
+            if state["status"] in (
+                CombatStatus.ATTACKER_WINS,
+                CombatStatus.DEFENDER_WINS,
+                CombatStatus.RETREAT_NO_CHANGE,
+            ):
+                break
+            # AWAITING_DECISION -> auto-continue (CEC-10 will gate on user choice).
             loop.submit_decision(attacker_continues=True, defender_continues=True)
-        state = loop.get_combat_state()
 
         # Sync surviving units back into the territories.
         if att_tid is not None:
             set_units(att_tid, att, state["remaining_attackers"])  # type: ignore[arg-type]
         set_units(target_id, defender, state["remaining_defenders"])  # type: ignore[arg-type]
 
-        _last_combat = (att, state, target_id, att_tid)
+        # Skip the post-combat popup in main(): all phases already shown above.
+        _last_combat = None
         # ATTACKER_WINS: transfer ownership and advance survivors into the defender's tile.
         # DEFENDER_WINS / RETREAT_NO_CHANGE: ownership unchanged.
         if state["status"] == CombatStatus.ATTACKER_WINS:
