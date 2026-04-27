@@ -280,3 +280,46 @@ class TestBlueTeamMovement:
         _setup(["rapa_nui"], ["french_polynesia", "pitcairn"])
         move_unit("pitcairn", "rapa_nui", "Blue", "infantry", 1)
         assert "rapa_nui" in pending_battles()
+
+
+# ---------------------------------------------------------------------------
+# Claiming neutral territories (CEC-15 / axis-cx5)
+# ---------------------------------------------------------------------------
+
+class TestClaimNeutralOnMove:
+    def test_red_moving_into_neutral_claims_it(self) -> None:
+        """Moving into a Neutral territory transfers ownership to the moving team."""
+        _fresh()
+        # marshall (Red, adjacency includes nauru which is a Neutral start).
+        from src.territory import owner as territory_owner
+        from src.units import init_game as reset_units
+        reset_units()  # ensure nauru is Neutral
+        assert territory_owner("nauru") == "Neutral"
+        move_unit("marshall", "nauru", "Red", "infantry", 1)
+        assert territory_owner("nauru") == "Red"
+
+    def test_blue_moving_into_neutral_claims_it(self) -> None:
+        _fresh()
+        from src.territory import owner as territory_owner
+        from src.units import init_game as reset_units
+        reset_units()
+        assert territory_owner("pitcairn") == "Neutral"
+        # french_polynesia is Blue and adjacent to pitcairn (Neutral).
+        move_unit("french_polynesia", "pitcairn", "Blue", "infantry", 1)
+        assert territory_owner("pitcairn") == "Blue"
+
+    def test_claiming_neutral_does_not_register_pending_battle(self) -> None:
+        """Claiming is silent — no battle queued for combat phase."""
+        _fresh()
+        from src.units import init_game as reset_units
+        reset_units()
+        move_unit("marshall", "nauru", "Red", "infantry", 1)
+        assert "nauru" not in pending_battles()
+
+    def test_claiming_neutral_moves_units(self) -> None:
+        """The moved unit stack lands in the claimed territory."""
+        _fresh()
+        from src.units import init_game as reset_units, units
+        reset_units()
+        move_unit("marshall", "nauru", "Red", "infantry", 2)
+        assert units("nauru", "Red")["infantry"] == 2

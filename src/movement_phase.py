@@ -38,7 +38,7 @@ reset_movement_phase() -> None
 
 from typing import Literal
 
-from .territory import Team, TerritoryId, owner
+from .territory import Team, TerritoryId, owner, set_owner
 from .units import units as get_units, set_units, UnitType
 
 # Phase states for the turn structure.
@@ -109,6 +109,7 @@ def move_unit(
     - Subtracts `count` units of `unit_type` from `from_tid` for `team`.
     - Adds `count` units of `unit_type` to `to_tid` for `team`.
     - If `to_tid` is owned by the enemy, registers it as a pending battle.
+    - If `to_tid` is Neutral, claims it for `team` (silent, no combat).
     - Marks `from_tid` as having been moved from; further moves from the
       same territory this phase will raise ValueError.
 
@@ -152,9 +153,13 @@ def move_unit(
     # Mark source territory as having been moved from this phase.
     _moved_from.add(from_tid)
 
-    # If the destination is enemy-owned, register it as a pending battle.
+    # Resolve ownership of the destination.
     dest_owner = owner(to_tid)
-    if dest_owner != team and dest_owner != "Neutral":
+    if dest_owner == "Neutral":
+        # Claim ownership silently; no combat, no popup.
+        set_owner(to_tid, team)
+    elif dest_owner != team:
+        # Enemy-owned: register a pending battle.
         if to_tid not in _pending_battles_set:
             _pending_battles.append(to_tid)
             _pending_battles_set.add(to_tid)
