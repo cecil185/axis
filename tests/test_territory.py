@@ -1,6 +1,7 @@
 from src.state import TEAMS
 from src.territory import (
     ALL_TERRITORY_IDS,
+    NEUTRAL_TERRITORIES,
     display_name,
     ipc_value,
     map_position,
@@ -78,12 +79,18 @@ def test_neighbors_returns_adjacent_territories_symmetric() -> None:
 
 def test_initial_ownership_red_owns_first_fifteen() -> None:
     for i, tid in enumerate(ALL_TERRITORY_IDS[:15]):
-        assert owner(tid) == RED, f"{tid} should be Red"
+        if tid in NEUTRAL_TERRITORIES:
+            assert owner(tid) == "Neutral", f"{tid} should be Neutral"
+        else:
+            assert owner(tid) == RED, f"{tid} should be Red"
 
 
 def test_initial_ownership_blue_owns_last_fourteen() -> None:
     for tid in ALL_TERRITORY_IDS[15:]:
-        assert owner(tid) == BLUE, f"{tid} should be Blue"
+        if tid in NEUTRAL_TERRITORIES:
+            assert owner(tid) == "Neutral", f"{tid} should be Neutral"
+        else:
+            assert owner(tid) == BLUE, f"{tid} should be Blue"
 
 
 def test_set_owner_updates_ownership() -> None:
