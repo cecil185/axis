@@ -320,7 +320,10 @@ def _begin_ncm_phase() -> None:
 
 def _advance_ncm_to_end_turn() -> None:
     """Finalise NCM, advance the turn, reset to movement phase for next team."""
-    global _ui_phase, _selected_territory
+    global _ui_phase, _selected_territory, _placement_unit
+    # CEC-16: any unplaced reinforcements are forfeited at end of turn.
+    clear_pending(current_team())
+    _placement_unit = None
     end_ncm_phase()
     end_turn()
     reset_ncm_phase()
@@ -1141,12 +1144,65 @@ def _draw_right_sidebar(
     y += attack_txt.get_height() + SIDEBAR_LINE_GAP
     skip_txt = small_font.render(f"Skip: {'yes' if skip_ok else 'no'}", True, TEXT_COLOR)
     screen.blit(skip_txt, (sidebar.x + SIDEBAR_PAD, y))
+    y += skip_txt.get_height() + SIDEBAR_SECTION_GAP
+
+    # --- Economy summary (always visible): both teams' balance + income (CEC-16) ---
+    eco_title = small_font.render("Economy", True, MOVES_TITLE_COLOR)
+    screen.blit(eco_title, (sidebar.x + SIDEBAR_PAD, y))
+    y += eco_title.get_height() + SIDEBAR_LINE_GAP
+    for tm in ("Red", "Blue"):
+        bal = get_balance(tm)
+        inc = income_for(tm)
+        cnt = territory_count(tm)
+        line = f"{tm}: {bal} IPC ({cnt}T->{inc})"
+        line_surf = small_font.render(line, True, TEAM_COLORS[tm])
+        screen.blit(line_surf, (sidebar.x + SIDEBAR_PAD, y))
+        y += line_surf.get_height() + SIDEBAR_LINE_GAP
+
+    _draw_economy_panel(screen, sidebar, small_font)
+
     # Draw the raw fallback button only when not using the pygame-gui UIButton
     if not use_gui_button:
         btn = end_turn_button_rect(sidebar)
         pygame.draw.rect(screen, BTN_BG, btn, border_radius=BORDER_RADIUS)
         btn_text = btn_font.render("End turn", True, TEXT_COLOR)
         screen.blit(btn_text, btn_text.get_rect(center=btn.center))
+
+
+def _draw_economy_panel(
+    screen: pygame.Surface,
+    sidebar: pygame.Rect,
+    small_font: pygame.font.Font,
+) -> None:
+    """Draw the purchase / placement panel inside the sidebar (CEC-16)."""
+    panel = economy_panel_rect(sidebar)
+    pygame.draw.rect(screen, (35, 38, 45), panel, border_radius=BORDER_RADIUS)
+    pygame.draw.rect(screen, SIDEBAR_BORDER, panel, 1, border_radius=BORDER_RADIUS)
+    placement = (_ui_phase == "ncm")
+    header = "Place units" if placement else "Purchase units"
+    header_surf = small_font.render(header, True, MOVES_TITLE_COLOR)
+    screen.blit(header_surf, (panel.x + 8, panel.y + 4))
+    team = current_team()
+    pending = get_pending(team)
+    balance = get_balance(team)
+    for ut in ALL_UNIT_TYPES:
+        rect = unit_row_rect(ut, sidebar)
+        cost = UNIT_COSTS[ut]
+        if placement:
+            count = pending.get(ut, 0)
+            bg = BTN_BG
+            text_color = TEXT_COLOR if count > 0 else (140, 140, 140)
+            row_text = f"{ut}: {count} ready"
+        else:
+            affordable = balance >= cost
+            bg = BTN_BG if affordable else (60, 60, 60)
+            text_color = TEXT_COLOR if affordable else (140, 140, 140)
+            row_text = f"{ut}: {cost} IPCs"
+        pygame.draw.rect(screen, bg, rect, border_radius=BORDER_RADIUS)
+        if placement and _placement_unit == ut:
+            pygame.draw.rect(screen, (80, 200, 80), rect, 2, border_radius=BORDER_RADIUS)
+        row_surf = small_font.render(row_text, True, text_color)
+        screen.blit(row_surf, row_surf.get_rect(midleft=(rect.x + 8, rect.centery)))
 
 
 def main() -> None:
