@@ -1170,6 +1170,29 @@ def main() -> None:
         text="Done Moving",
         manager=ui_manager,
     )
+    # Multi-battle UI (CEC-17): Next Battle + Skip All sit just above End Turn
+    # and are only visible while the pending-battle queue is non-empty. They
+    # let the player resolve battles one at a time or discard the rest.
+    next_battle_btn = pygame_gui.elements.UIButton(
+        relative_rect=next_battle_button_rect(sidebar),
+        text="Next Battle",
+        manager=ui_manager,
+    )
+    skip_all_btn = pygame_gui.elements.UIButton(
+        relative_rect=skip_all_battles_button_rect(sidebar),
+        text="Skip All",
+        manager=ui_manager,
+    )
+    battle_queue_label = pygame_gui.elements.UILabel(
+        relative_rect=pygame.Rect(
+            next_battle_button_rect(sidebar).x,
+            next_battle_button_rect(sidebar).y - 32,
+            SIDEBAR_RIGHT_WIDTH - 2 * SIDEBAR_PAD,
+            28,
+        ),
+        text="",
+        manager=ui_manager,
+    )
     # sidebar_panel is None; the sidebar background is drawn with raw pygame.draw.rect
     # in _draw_right_sidebar so that text labels rendered before ui_manager.draw_ui()
     # are not covered. The primary "styled widget container" for the sidebar is the
@@ -1259,6 +1282,32 @@ def main() -> None:
             else:
                 end_turn_btn.set_text("End Turn")
             end_turn_btn.show()
+        # Multi-battle UI (CEC-17): show queue counter + Next/Skip All buttons
+        # whenever there are pending battles outside of the movement phase.
+        battles_remaining = len(pending_battles())
+        if battles_remaining > 0 and _ui_phase != "movement":
+            battle_queue_label.set_text(battle_queue_label_text(battles_remaining))
+            battle_queue_label.show()
+            next_battle_btn.show()
+            skip_all_btn.show()
+        else:
+            battle_queue_label.set_text("")
+            battle_queue_label.hide()
+            next_battle_btn.hide()
+            skip_all_btn.hide()
+
+        def _on_battle_resolved(result) -> None:
+            """Set _last_combat so the existing popup runs after a queue battle."""
+            global _last_combat
+            _last_combat = (
+                result["attacker"],
+                result["att_roll"],
+                result["def_roll"],
+                result["winner"],
+                result["territory"],
+                None,
+            )
+
         running = _handle_events(
             right_sidebar_rect(),
             map_surf,
@@ -1266,6 +1315,9 @@ def main() -> None:
             ui_manager,
             end_turn_btn,
             done_moving_btn,
+            next_battle_btn,
+            skip_all_btn,
+            _on_battle_resolved,
         )
         if not running:
             break
