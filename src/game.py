@@ -456,6 +456,51 @@ def _load_map_surface() -> pygame.Surface | None:
     return pygame.transform.smoothscale(img, (MAP_WIDTH, MAP_HEIGHT))
 
 
+def _handle_economy_click(pos: tuple[int, int], sidebar: pygame.Rect) -> bool:
+    """Handle a left-click on the economy panel (CEC-16).
+
+    Returns True if the click was inside the economy panel (consumed).
+    During non-NCM phases, clicks buy a unit (if affordable).
+    During NCM, clicks select the pending unit type for placement.
+    """
+    global _placement_unit
+    panel = economy_panel_rect(sidebar)
+    if not panel.collidepoint(pos):
+        return False
+    team = current_team()
+    placement = (_ui_phase == "ncm")
+    for ut in ALL_UNIT_TYPES:
+        if unit_row_rect(ut, sidebar).collidepoint(pos):
+            if placement:
+                if get_pending(team).get(ut, 0) > 0:
+                    _placement_unit = ut
+                else:
+                    _placement_unit = None
+            else:
+                try:
+                    buy_unit(team, ut)
+                except ValueError as e:
+                    logging.info("Cannot buy %s: %s", ut, e)
+            return True
+    return True
+
+
+def _handle_placement_map_click(tid: TerritoryId | None) -> None:
+    """Place a pending unit of `_placement_unit` on `tid` (CEC-16)."""
+    global _placement_unit
+    if tid is None or _placement_unit is None:
+        return
+    team = current_team()
+    if owner(tid) != team:
+        return
+    try:
+        place_unit(team, tid, _placement_unit)
+    except ValueError as e:
+        logging.info("Cannot place %s on %s: %s", _placement_unit, tid, e)
+    if get_pending(team).get(_placement_unit, 0) <= 0:
+        _placement_unit = None
+
+
 def _handle_events(
     sidebar: pygame.Rect,
     map_surf: pygame.Surface | None,
@@ -467,7 +512,7 @@ def _handle_events(
     skip_all_btn: "pygame_gui.elements.UIButton | None" = None,
     on_battle_resolved: "callable | None" = None,
 ) -> bool:
-    global _selected_territory
+    global _selected_territory, _placement_unit
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
             return False
