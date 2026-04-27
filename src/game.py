@@ -1001,8 +1001,17 @@ def _show_combat_popup(
     def_territory_id: TerritoryId,
     clock: pygame.time.Clock,
     att_territory_id: TerritoryId | None = None,
-) -> None:
-    """Show multi-phase combat outcome in a modal popup; wait for any key to close."""
+) -> tuple[bool, bool] | None:
+    """Show the multi-phase combat popup.
+
+    Returns:
+      - None for terminal status (ATTACKER_WINS / DEFENDER_WINS /
+        RETREAT_NO_CHANGE) -- the user dismisses with any key.
+      - (attacker_continues, defender_continues) for AWAITING_DECISION -- the
+        user picks Continue/Retreat for each side via on-screen buttons; the
+        popup blocks until both sides have chosen. The caller passes these
+        into CombatLoop.submit_decision().
+    """
     def_team: str = "Blue" if att_team == "Red" else "Red"
     status = combat_state["status"]
     is_terminal = status in (
@@ -1017,7 +1026,7 @@ def _show_combat_popup(
         outcome = "Defender holds!"
         outcome_color = TEAM_COLORS[def_team]
     elif status == CombatStatus.RETREAT_NO_CHANGE:
-        outcome = "Retreat"
+        outcome = "Combat ended -- retreat"
         outcome_color = TEXT_COLOR
     else:  # AWAITING_DECISION (mid-battle, more phases coming)
         outcome = "Phase complete"
@@ -1028,54 +1037,128 @@ def _show_combat_popup(
     rem_att = combat_state["remaining_attackers"]
     rem_def = combat_state["remaining_defenders"]
 
-    overlay = pygame.Surface((WIDTH, HEIGHT))
-    overlay.set_alpha(200)
-    overlay.fill((0, 0, 0))
-    screen.blit(overlay, (0, 0))
-
-    popup_w, popup_h = 380, 270
+    # AWAITING_DECISION needs two extra rows of Continue/Retreat per side.
+    popup_w = 380
+    popup_h = 270 if is_terminal else 360
     popup_x = (WIDTH - popup_w) // 2
     popup_y = (HEIGHT - popup_h) // 2
-    popup_rect = pygame.Rect(popup_x, popup_y, popup_w, popup_h)
-    pygame.draw.rect(screen, SIDEBAR_BG, popup_rect, border_radius=BORDER_RADIUS)
-    pygame.draw.rect(screen, SIDEBAR_BORDER, popup_rect, 2, border_radius=BORDER_RADIUS)
-    font = pygame.font.Font(None, 48)
-    small_font = pygame.font.Font(None, 24)
-    title = font.render("Combat", True, MOVES_TITLE_COLOR)
-    screen.blit(title, title.get_rect(centerx=popup_rect.centerx, top=popup_y + 10))
-    phase_label = small_font.render(
-        f"Phase {combat_state['phase_index']}: {att_team} {att_rolls} vs {def_team} {def_rolls}",
-        True,
-        TEXT_COLOR,
+
+    btn_w, btn_h = 130, 32
+    btn_gap_x = 16
+    row_y_att = popup_y + 218
+    row_y_def = popup_y + 270
+    att_continue_rect = pygame.Rect(
+        popup_x + (popup_w - 2 * btn_w - btn_gap_x) // 2, row_y_att, btn_w, btn_h
     )
-    screen.blit(phase_label, phase_label.get_rect(centerx=popup_rect.centerx, top=popup_y + 56))
-    dmg_label = small_font.render(
-        f"Damage: att {combat_state['last_att_damage']}  def {combat_state['last_def_damage']}",
-        True,
-        MOVES_TITLE_COLOR,
+    att_retreat_rect = pygame.Rect(
+        att_continue_rect.right + btn_gap_x, row_y_att, btn_w, btn_h
     )
-    screen.blit(dmg_label, dmg_label.get_rect(centerx=popup_rect.centerx, top=popup_y + 82))
-    rem_label = small_font.render(
-        f"Remaining: {att_team} {rem_att.get('infantry', 0)}i {rem_att.get('tanks', 0)}t  |  "
-        f"{def_team} {rem_def.get('infantry', 0)}i {rem_def.get('tanks', 0)}t",
-        True,
-        TEXT_COLOR,
-    )
-    screen.blit(rem_label, rem_label.get_rect(centerx=popup_rect.centerx, top=popup_y + 108))
-    defending_label = small_font.render(f"Defending: {def_name}", True, MOVES_TITLE_COLOR)
-    screen.blit(defending_label, defending_label.get_rect(centerx=popup_rect.centerx, top=popup_y + 134))
-    outcome_surf = font.render(outcome, True, outcome_color)
-    screen.blit(outcome_surf, outcome_surf.get_rect(centerx=popup_rect.centerx, top=popup_y + 162))
-    hint_text = "Press any key to close" if is_terminal else "Press any key for next phase"
-    hint = pygame.font.Font(None, 24).render(hint_text, True, MOVES_TITLE_COLOR)
-    screen.blit(hint, hint.get_rect(centerx=popup_rect.centerx, top=popup_y + 222))
+    def_continue_rect = pygame.Rect(att_continue_rect.x, row_y_def, btn_w, btn_h)
+    def_retreat_rect = pygame.Rect(att_retreat_rect.x, row_y_def, btn_w, btn_h)
+
+    att_choice: bool | None = None  # True=Continue, False=Retreat, None=unchosen
+    def_choice: bool | None = None
+
+    def _render() -> None:
+        overlay = pygame.Surface((WIDTH, HEIGHT))
+        overlay.set_alpha(200)
+        overlay.fill((0, 0, 0))
+        screen.blit(overlay, (0, 0))
+
+        popup_rect = pygame.Rect(popup_x, popup_y, popup_w, popup_h)
+        pygame.draw.rect(screen, SIDEBAR_BG, popup_rect, border_radius=BORDER_RADIUS)
+        pygame.draw.rect(screen, SIDEBAR_BORDER, popup_rect, 2, border_radius=BORDER_RADIUS)
+        font = pygame.font.Font(None, 48)
+        small_font = pygame.font.Font(None, 24)
+        title = font.render("Combat", True, MOVES_TITLE_COLOR)
+        screen.blit(title, title.get_rect(centerx=popup_rect.centerx, top=popup_y + 10))
+        phase_label = small_font.render(
+            f"Phase {combat_state['phase_index']}: {att_team} {att_rolls} vs {def_team} {def_rolls}",
+            True,
+            TEXT_COLOR,
+        )
+        screen.blit(phase_label, phase_label.get_rect(centerx=popup_rect.centerx, top=popup_y + 56))
+        dmg_label = small_font.render(
+            f"Damage: att {combat_state['last_att_damage']}  def {combat_state['last_def_damage']}",
+            True,
+            MOVES_TITLE_COLOR,
+        )
+        screen.blit(dmg_label, dmg_label.get_rect(centerx=popup_rect.centerx, top=popup_y + 82))
+        rem_label = small_font.render(
+            f"Remaining: {att_team} {rem_att.get('infantry', 0)}i {rem_att.get('tanks', 0)}t  |  "
+            f"{def_team} {rem_def.get('infantry', 0)}i {rem_def.get('tanks', 0)}t",
+            True,
+            TEXT_COLOR,
+        )
+        screen.blit(rem_label, rem_label.get_rect(centerx=popup_rect.centerx, top=popup_y + 108))
+        defending_label = small_font.render(f"Defending: {def_name}", True, MOVES_TITLE_COLOR)
+        screen.blit(defending_label, defending_label.get_rect(centerx=popup_rect.centerx, top=popup_y + 134))
+        outcome_surf = font.render(outcome, True, outcome_color)
+        screen.blit(outcome_surf, outcome_surf.get_rect(centerx=popup_rect.centerx, top=popup_y + 162))
+
+        if is_terminal:
+            hint = pygame.font.Font(None, 24).render(
+                "Press any key to close", True, MOVES_TITLE_COLOR
+            )
+            screen.blit(hint, hint.get_rect(centerx=popup_rect.centerx, top=popup_y + 222))
+            return
+
+        # AWAITING_DECISION: per-side Continue / Retreat button rows.
+        def _draw_choice_button(
+            rect: pygame.Rect, label: str, chosen: bool | None, this_choice: bool
+        ) -> None:
+            bg = (110, 160, 110) if (chosen is not None and chosen is this_choice) else BTN_BG
+            pygame.draw.rect(screen, bg, rect, border_radius=BORDER_RADIUS)
+            pygame.draw.rect(screen, SIDEBAR_BORDER, rect, 1, border_radius=BORDER_RADIUS)
+            txt = small_font.render(label, True, TEXT_COLOR)
+            screen.blit(txt, txt.get_rect(center=rect.center))
+
+        att_row_label = small_font.render(f"{att_team} (attacker)", True, TEAM_COLORS[att_team])
+        screen.blit(att_row_label, att_row_label.get_rect(x=popup_x + 16, top=row_y_att - 22))
+        _draw_choice_button(att_continue_rect, "Continue", att_choice, True)
+        _draw_choice_button(att_retreat_rect, "Retreat", att_choice, False)
+
+        def_row_label = small_font.render(f"{def_team} (defender)", True, TEAM_COLORS[def_team])
+        screen.blit(def_row_label, def_row_label.get_rect(x=popup_x + 16, top=row_y_def - 22))
+        _draw_choice_button(def_continue_rect, "Continue", def_choice, True)
+        _draw_choice_button(def_retreat_rect, "Retreat", def_choice, False)
+
+    _render()
     pygame.display.flip()
+
     waiting = True
     while waiting:
         for event in pygame.event.get():
-            if event.type in (pygame.QUIT, pygame.KEYDOWN):
+            if event.type == pygame.QUIT:
                 waiting = False
+                if is_terminal:
+                    return None
+                # Treat window-close mid-battle as a mutual retreat.
+                return (False, False)
+            if is_terminal:
+                if event.type == pygame.KEYDOWN:
+                    waiting = False
+                continue
+            # AWAITING_DECISION: clicks on the four buttons set each side's choice.
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if att_continue_rect.collidepoint(event.pos):
+                    att_choice = True
+                elif att_retreat_rect.collidepoint(event.pos):
+                    att_choice = False
+                elif def_continue_rect.collidepoint(event.pos):
+                    def_choice = True
+                elif def_retreat_rect.collidepoint(event.pos):
+                    def_choice = False
+                if att_choice is not None and def_choice is not None:
+                    waiting = False
+        if waiting:
+            _render()
+            pygame.display.flip()
         clock.tick(FPS)
+
+    if is_terminal:
+        return None
+    return (bool(att_choice), bool(def_choice))
 
 
 def _show_winner_popup(
@@ -1341,21 +1424,26 @@ def main() -> None:
         defenders = territory_units(target_id, defender)  # type: ignore[arg-type]
 
         loop = CombatLoop(attackers=attackers, defenders=defenders)
-        # Run phases interactively: after each phase the popup refreshes with the
-        # latest CombatState (CEC-9). Retreat decisions are added in CEC-10; for
-        # now AWAITING_DECISION always continues both sides.
+        # Run phases interactively. After each phase the popup refreshes with the
+        # latest CombatState (CEC-9). At AWAITING_DECISION the popup returns the
+        # user's Continue/Retreat choices for both sides (CEC-10) and the loop
+        # advances accordingly; if either side retreats, RETREAT_NO_CHANGE ends
+        # the battle with no ownership change.
         loop.run_phase()
         while True:
             state = loop.get_combat_state()
-            _show_combat_popup(screen, att, state, target_id, clock, att_tid)
+            decision = _show_combat_popup(screen, att, state, target_id, clock, att_tid)
             if state["status"] in (
                 CombatStatus.ATTACKER_WINS,
                 CombatStatus.DEFENDER_WINS,
                 CombatStatus.RETREAT_NO_CHANGE,
             ):
                 break
-            # AWAITING_DECISION -> auto-continue (CEC-10 will gate on user choice).
-            loop.submit_decision(attacker_continues=True, defender_continues=True)
+            # AWAITING_DECISION: feed user's per-side Continue/Retreat back into
+            # the loop. submit_decision runs the next phase if both continue;
+            # otherwise it sets RETREAT_NO_CHANGE and the next iteration breaks.
+            att_cont, def_cont = decision if decision is not None else (True, True)
+            loop.submit_decision(attacker_continues=att_cont, defender_continues=def_cont)
 
         # Sync surviving units back into the territories.
         if att_tid is not None:
